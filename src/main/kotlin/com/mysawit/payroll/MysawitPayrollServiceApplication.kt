@@ -7,5 +7,8 @@ import org.springframework.boot.runApplication
 class MysawitPayrollServiceApplication
 
 fun main(args: Array<String>) {
-	runApplication<MysawitPayrollServiceApplication>(*args)
+    val context = runApplication<MysawitPayrollServiceApplication>(*args)
+    if (context.environment.getProperty("app.test.close-context", Boolean::class.java, false)) {
+        context.close()
+    }
 }
