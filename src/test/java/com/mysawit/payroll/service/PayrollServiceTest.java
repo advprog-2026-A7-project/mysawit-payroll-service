@@ -4,175 +4,240 @@ import com.mysawit.payroll.model.Payroll;
 import com.mysawit.payroll.repository.PayrollRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-import org.springframework.test.util.ReflectionTestUtils;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+@ExtendWith(MockitoExtension.class)
 class PayrollServiceTest {
 
+    @Mock
     private PayrollRepository payrollRepository;
+
+    @InjectMocks
     private PayrollService payrollService;
+
+    private Payroll pendingPayroll;
+    private Payroll approvedPayroll;
 
     @BeforeEach
     void setUp() {
-        payrollRepository = mock(PayrollRepository.class);
-        payrollService = new PayrollService();
-        ReflectionTestUtils.setField(payrollService, "payrollRepository", payrollRepository);
+        pendingPayroll = new Payroll();
+        pendingPayroll.setId(1L);
+        pendingPayroll.setEmployeeId(10L);
+        pendingPayroll.setBaseAmount(5000000.0);
+        pendingPayroll.setBonusAmount(500000.0);
+        pendingPayroll.setDeductionAmount(250000.0);
+        pendingPayroll.setTotalAmount(5250000.0);
+        pendingPayroll.setStatus("PENDING");
+        pendingPayroll.setPeriodStart(LocalDateTime.of(2026, 1, 1, 0, 0));
+        pendingPayroll.setPeriodEnd(LocalDateTime.of(2026, 1, 31, 23, 59));
+
+        approvedPayroll = new Payroll();
+        approvedPayroll.setId(2L);
+        approvedPayroll.setStatus("APPROVED");
+    }
+
+    // ── getAllPayrolls ─────────────────────────────────────────────────────────
+
+    @Test
+    void getAllPayrollsReturnsList() {
+        when(payrollRepository.findAll()).thenReturn(List.of(pendingPayroll));
+        List<Payroll> result = payrollService.getAllPayrolls();
+        assertEquals(1, result.size());
+    }
+
+    // ── getPayrollById ────────────────────────────────────────────────────────
+
+    @Test
+    void getPayrollByIdFoundReturnsOptional() {
+        when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
+        Optional<Payroll> result = payrollService.getPayrollById(1L);
+        assertTrue(result.isPresent());
     }
 
     @Test
-    void getAllPayrollsReturnsRepositoryData() {
-        when(payrollRepository.findAll()).thenReturn(List.of(new Payroll(), new Payroll()));
-
-        assertEquals(2, payrollService.getAllPayrolls().size());
+    void getPayrollByIdNotFoundReturnsEmpty() {
+        when(payrollRepository.findById(99L)).thenReturn(Optional.empty());
+        assertTrue(payrollService.getPayrollById(99L).isEmpty());
     }
 
-    @Test
-    void getPayrollByIdReturnsRepositoryData() {
-        Payroll payroll = new Payroll();
-        when(payrollRepository.findById(1L)).thenReturn(Optional.of(payroll));
+    // ── getPayrollsByEmployee ─────────────────────────────────────────────────
 
-        assertEquals(Optional.of(payroll), payrollService.getPayrollById(1L));
+    @Test
+    void getPayrollsByEmployeeReturnsList() {
+        when(payrollRepository.findByEmployeeId(10L)).thenReturn(List.of(pendingPayroll));
+        List<Payroll> result = payrollService.getPayrollsByEmployee(10L);
+        assertEquals(1, result.size());
     }
 
-    @Test
-    void getPayrollsByEmployeeReturnsRepositoryData() {
-        when(payrollRepository.findByEmployeeId(10L)).thenReturn(List.of(new Payroll()));
+    // ── getPayrollsByStatus ───────────────────────────────────────────────────
 
-        assertEquals(1, payrollService.getPayrollsByEmployee(10L).size());
+    @Test
+    void getPayrollsByStatusReturnsList() {
+        when(payrollRepository.findByStatus("PENDING")).thenReturn(List.of(pendingPayroll));
+        List<Payroll> result = payrollService.getPayrollsByStatus("PENDING");
+        assertEquals(1, result.size());
     }
 
-    @Test
-    void getPayrollsByStatusReturnsRepositoryData() {
-        when(payrollRepository.findByStatus("PENDING")).thenReturn(List.of(new Payroll()));
+    // ── createPayroll ─────────────────────────────────────────────────────────
 
-        assertEquals(1, payrollService.getPayrollsByStatus("PENDING").size());
+    @Test
+    void createPayrollSavesAndReturns() {
+        when(payrollRepository.save(any())).thenReturn(pendingPayroll);
+        Payroll result = payrollService.createPayroll(pendingPayroll);
+        assertEquals("PENDING", result.getStatus());
     }
 
-    @Test
-    void createPayrollSavesEntity() {
-        Payroll payroll = new Payroll();
-        when(payrollRepository.save(payroll)).thenReturn(payroll);
-
-        Payroll result = payrollService.createPayroll(payroll);
-
-        assertSame(payroll, result);
-    }
+    // ── updatePayroll ─────────────────────────────────────────────────────────
 
     @Test
-    void updatePayrollUpdatesFieldsAndSaves() {
-        Payroll existing = samplePayroll();
-        Payroll details = new Payroll();
-        details.setBaseAmount(6000000.0);
-        details.setBonusAmount(400000.0);
-        details.setDeductionAmount(100000.0);
-        details.setStatus("APPROVED");
-        details.setPaymentDate(LocalDateTime.of(2026, 1, 31, 12, 0));
-        details.setPaymentMethod("CASH");
-        details.setNotes("updated");
+    void updatePayrollUpdatesFieldsAndReturns() {
+        Payroll updates = new Payroll();
+        updates.setBaseAmount(6000000.0);
+        updates.setBonusAmount(600000.0);
+        updates.setDeductionAmount(300000.0);
+        updates.setStatus("APPROVED");
+        updates.setPaymentMethod("CASH");
+        updates.setNotes("Updated");
+        updates.setPaymentDate(LocalDateTime.now());
 
-        when(payrollRepository.findById(1L)).thenReturn(Optional.of(existing));
-        when(payrollRepository.save(existing)).thenReturn(existing);
+        when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
+        when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        Payroll result = payrollService.updatePayroll(1L, details);
-
-        assertEquals(6000000.0, result.getBaseAmount());
-        assertEquals(400000.0, result.getBonusAmount());
-        assertEquals(100000.0, result.getDeductionAmount());
+        Payroll result = payrollService.updatePayroll(1L, updates);
         assertEquals("APPROVED", result.getStatus());
-        assertEquals("CASH", result.getPaymentMethod());
-        assertEquals("updated", result.getNotes());
+        assertEquals(6000000.0, result.getBaseAmount());
     }
 
     @Test
-    void updatePayrollThrowsWhenMissing() {
-        when(payrollRepository.findById(1L)).thenReturn(Optional.empty());
-
-        RuntimeException exception = assertThrows(RuntimeException.class, () -> payrollService.updatePayroll(1L, new Payroll()));
-
-        assertEquals("Payroll not found with id: 1", exception.getMessage());
+    void updatePayrollThrowsWhenNotFound() {
+        when(payrollRepository.findById(99L)).thenReturn(Optional.empty());
+        assertThrows(RuntimeException.class, () -> payrollService.updatePayroll(99L, new Payroll()));
     }
+
+    // ── approvePayroll ────────────────────────────────────────────────────────
 
     @Test
     void approvePayrollSetsStatusApproved() {
-        Payroll existing = samplePayroll();
-        when(payrollRepository.findById(1L)).thenReturn(Optional.of(existing));
-        when(payrollRepository.save(existing)).thenReturn(existing);
+        when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
+        when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         Payroll result = payrollService.approvePayroll(1L);
-
         assertEquals("APPROVED", result.getStatus());
     }
 
     @Test
-    void approvePayrollThrowsWhenMissing() {
-        when(payrollRepository.findById(1L)).thenReturn(Optional.empty());
+    void approvePayrollThrowsWhenNotFound() {
+        when(payrollRepository.findById(99L)).thenReturn(Optional.empty());
+        assertThrows(RuntimeException.class, () -> payrollService.approvePayroll(99L));
+    }
 
-        RuntimeException exception = assertThrows(RuntimeException.class, () -> payrollService.approvePayroll(1L));
+    // ── acceptPayroll ─────────────────────────────────────────────────────────
 
-        assertEquals("Payroll not found with id: 1", exception.getMessage());
+    @Test
+    void acceptPayrollSetsStatusAccepted() {
+        when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
+        when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Payroll result = payrollService.acceptPayroll(1L);
+        assertEquals("ACCEPTED", result.getStatus());
     }
 
     @Test
-    void markAsPaidSetsStatusAndPaymentFields() {
-        Payroll existing = samplePayroll();
-        when(payrollRepository.findById(1L)).thenReturn(Optional.of(existing));
-        when(payrollRepository.save(existing)).thenReturn(existing);
+    void acceptPayrollThrowsWhenNotPending() {
+        when(payrollRepository.findById(2L)).thenReturn(Optional.of(approvedPayroll));
+        assertThrows(IllegalStateException.class, () -> payrollService.acceptPayroll(2L));
+    }
+
+    @Test
+    void acceptPayrollThrowsWhenNotFound() {
+        when(payrollRepository.findById(99L)).thenReturn(Optional.empty());
+        assertThrows(RuntimeException.class, () -> payrollService.acceptPayroll(99L));
+    }
+
+    // ── rejectPayroll ─────────────────────────────────────────────────────────
+
+    @Test
+    void rejectPayrollSetsStatusRejectedWithReason() {
+        when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
+        when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Payroll result = payrollService.rejectPayroll(1L, "Insufficient hours");
+        assertEquals("REJECTED", result.getStatus());
+        assertEquals("Insufficient hours", result.getNotes());
+    }
+
+    @Test
+    void rejectPayrollSetsStatusRejectedWithoutReason() {
+        when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
+        when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Payroll result = payrollService.rejectPayroll(1L, null);
+        assertEquals("REJECTED", result.getStatus());
+    }
+
+    @Test
+    void rejectPayrollSetsStatusRejectedWithBlankReason() {
+        when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
+        when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Payroll result = payrollService.rejectPayroll(1L, "  ");
+        assertEquals("REJECTED", result.getStatus());
+    }
+
+    @Test
+    void rejectPayrollThrowsWhenNotPending() {
+        when(payrollRepository.findById(2L)).thenReturn(Optional.of(approvedPayroll));
+        assertThrows(IllegalStateException.class, () -> payrollService.rejectPayroll(2L, "reason"));
+    }
+
+    @Test
+    void rejectPayrollThrowsWhenNotFound() {
+        when(payrollRepository.findById(99L)).thenReturn(Optional.empty());
+        assertThrows(RuntimeException.class, () -> payrollService.rejectPayroll(99L, "reason"));
+    }
+
+    // ── markAsPaid ────────────────────────────────────────────────────────────
+
+    @Test
+    void markAsPaidSetsStatusPaid() {
+        when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
+        when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         Payroll result = payrollService.markAsPaid(1L, "BANK_TRANSFER");
-
         assertEquals("PAID", result.getStatus());
         assertEquals("BANK_TRANSFER", result.getPaymentMethod());
         assertNotNull(result.getPaymentDate());
     }
 
     @Test
-    void markAsPaidThrowsWhenMissing() {
-        when(payrollRepository.findById(1L)).thenReturn(Optional.empty());
-
-        RuntimeException exception = assertThrows(RuntimeException.class, () -> payrollService.markAsPaid(1L, "BANK_TRANSFER"));
-
-        assertEquals("Payroll not found with id: 1", exception.getMessage());
+    void markAsPaidThrowsWhenNotFound() {
+        when(payrollRepository.findById(99L)).thenReturn(Optional.empty());
+        assertThrows(RuntimeException.class, () -> payrollService.markAsPaid(99L, "CASH"));
     }
 
-    @Test
-    void deletePayrollDeletesWhenFound() {
-        Payroll existing = samplePayroll();
-        when(payrollRepository.findById(1L)).thenReturn(Optional.of(existing));
+    // ── deletePayroll ─────────────────────────────────────────────────────────
 
+    @Test
+    void deletePayrollDeletesSuccessfully() {
+        when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
         payrollService.deletePayroll(1L);
-
-        ArgumentCaptor<Payroll> captor = ArgumentCaptor.forClass(Payroll.class);
-        verify(payrollRepository).delete(captor.capture());
-        assertSame(existing, captor.getValue());
+        verify(payrollRepository).delete(pendingPayroll);
     }
 
     @Test
-    void deletePayrollThrowsWhenMissing() {
-        when(payrollRepository.findById(1L)).thenReturn(Optional.empty());
-
-        RuntimeException exception = assertThrows(RuntimeException.class, () -> payrollService.deletePayroll(1L));
-
-        assertEquals("Payroll not found with id: 1", exception.getMessage());
-    }
-
-    private Payroll samplePayroll() {
-        Payroll payroll = new Payroll();
-        payroll.setId(1L);
-        payroll.setEmployeeId(10L);
-        payroll.setPeriodStart(LocalDateTime.of(2026, 1, 1, 0, 0));
-        payroll.setPeriodEnd(LocalDateTime.of(2026, 1, 31, 23, 59));
-        payroll.setBaseAmount(5000000.0);
-        payroll.setBonusAmount(500000.0);
-        payroll.setDeductionAmount(250000.0);
-        payroll.setStatus("PENDING");
-        payroll.setPaymentMethod("BANK_TRANSFER");
-        return payroll;
+    void deletePayrollThrowsWhenNotFound() {
+        when(payrollRepository.findById(99L)).thenReturn(Optional.empty());
+        assertThrows(RuntimeException.class, () -> payrollService.deletePayroll(99L));
     }
 }

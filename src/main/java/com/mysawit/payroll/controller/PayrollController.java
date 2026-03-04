@@ -66,6 +66,31 @@ public class PayrollController {
         }
     }
 
+    @PatchMapping("/{id}/accept")
+    public ResponseEntity<?> acceptPayroll(@PathVariable Long id) {
+        try {
+            Payroll accepted = payrollService.acceptPayroll(id);
+            return ResponseEntity.ok(accepted);
+        } catch (IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    @PatchMapping("/{id}/reject")
+    public ResponseEntity<?> rejectPayroll(@PathVariable Long id, @RequestBody(required = false) Map<String, String> request) {
+        try {
+            String reason = request != null ? request.get("reason") : null;
+            Payroll rejected = payrollService.rejectPayroll(id, reason);
+            return ResponseEntity.ok(rejected);
+        } catch (IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
     @PatchMapping("/{id}/pay")
     public ResponseEntity<Payroll> markAsPaid(@PathVariable Long id, @RequestBody Map<String, String> request) {
         try {

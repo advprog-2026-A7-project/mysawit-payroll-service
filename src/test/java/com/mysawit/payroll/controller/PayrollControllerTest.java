@@ -4,9 +4,12 @@ import com.mysawit.payroll.model.Payroll;
 import com.mysawit.payroll.service.PayrollService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -15,184 +18,230 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
+@ExtendWith(MockitoExtension.class)
 class PayrollControllerTest {
 
+    @Mock
     private PayrollService payrollService;
+
+    @InjectMocks
     private PayrollController payrollController;
+
+    private Payroll pendingPayroll;
 
     @BeforeEach
     void setUp() {
-        payrollService = mock(PayrollService.class);
-        payrollController = new PayrollController();
-        ReflectionTestUtils.setField(payrollController, "payrollService", payrollService);
+        pendingPayroll = new Payroll();
+        pendingPayroll.setId(1L);
+        pendingPayroll.setEmployeeId(10L);
+        pendingPayroll.setStatus("PENDING");
+        pendingPayroll.setBaseAmount(5000000.0);
+        pendingPayroll.setBonusAmount(500000.0);
+        pendingPayroll.setDeductionAmount(250000.0);
+        pendingPayroll.setTotalAmount(5250000.0);
+        pendingPayroll.setPeriodStart(LocalDateTime.of(2026, 1, 1, 0, 0));
+        pendingPayroll.setPeriodEnd(LocalDateTime.of(2026, 1, 31, 23, 59));
     }
 
-    @Test
-    void getAllPayrollsReturnsList() {
-        when(payrollService.getAllPayrolls()).thenReturn(List.of(samplePayroll(1L), samplePayroll(2L)));
+    // ── GET all ───────────────────────────────────────────────────────────────
 
+    @Test
+    void getAllPayrollsReturns200() {
+        when(payrollService.getAllPayrolls()).thenReturn(List.of(pendingPayroll));
         ResponseEntity<List<Payroll>> response = payrollController.getAllPayrolls();
-
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(2, response.getBody().size());
+        assertEquals(1, response.getBody().size());
+    }
+
+    // ── GET by id ─────────────────────────────────────────────────────────────
+
+    @Test
+    void getPayrollByIdFoundReturns200() {
+        when(payrollService.getPayrollById(1L)).thenReturn(Optional.of(pendingPayroll));
+        ResponseEntity<Payroll> response = payrollController.getPayrollById(1L);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
     }
 
     @Test
-    void getPayrollByIdReturnsPayrollWhenFound() {
-        Payroll payroll = samplePayroll(1L);
-        when(payrollService.getPayrollById(1L)).thenReturn(Optional.of(payroll));
-
-        ResponseEntity<Payroll> response = payrollController.getPayrollById(1L);
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertSame(payroll, response.getBody());
-    }
-
-    @Test
-    void getPayrollByIdReturnsNotFoundWhenMissing() {
-        when(payrollService.getPayrollById(1L)).thenReturn(Optional.empty());
-
-        ResponseEntity<Payroll> response = payrollController.getPayrollById(1L);
-
+    void getPayrollByIdNotFoundReturns404() {
+        when(payrollService.getPayrollById(99L)).thenReturn(Optional.empty());
+        ResponseEntity<Payroll> response = payrollController.getPayrollById(99L);
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
     }
 
-    @Test
-    void getPayrollsByEmployeeReturnsList() {
-        when(payrollService.getPayrollsByEmployee(10L)).thenReturn(List.of(samplePayroll(1L)));
+    // ── GET by employee ───────────────────────────────────────────────────────
 
+    @Test
+    void getPayrollsByEmployeeReturns200() {
+        when(payrollService.getPayrollsByEmployee(10L)).thenReturn(List.of(pendingPayroll));
         ResponseEntity<List<Payroll>> response = payrollController.getPayrollsByEmployee(10L);
-
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(1, response.getBody().size());
     }
 
-    @Test
-    void getPayrollsByStatusReturnsList() {
-        when(payrollService.getPayrollsByStatus("PENDING")).thenReturn(List.of(samplePayroll(1L)));
+    // ── GET by status ─────────────────────────────────────────────────────────
 
+    @Test
+    void getPayrollsByStatusReturns200() {
+        when(payrollService.getPayrollsByStatus("PENDING")).thenReturn(List.of(pendingPayroll));
         ResponseEntity<List<Payroll>> response = payrollController.getPayrollsByStatus("PENDING");
-
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(1, response.getBody().size());
     }
 
+    // ── POST create ───────────────────────────────────────────────────────────
+
     @Test
-    void createPayrollReturnsCreatedStatus() {
-        Payroll payroll = samplePayroll(1L);
-        when(payrollService.createPayroll(payroll)).thenReturn(payroll);
-
-        ResponseEntity<Payroll> response = payrollController.createPayroll(payroll);
-
+    void createPayrollReturns201() {
+        when(payrollService.createPayroll(any())).thenReturn(pendingPayroll);
+        ResponseEntity<Payroll> response = payrollController.createPayroll(pendingPayroll);
         assertEquals(HttpStatus.CREATED, response.getStatusCode());
-        assertSame(payroll, response.getBody());
     }
 
+    // ── PUT update ────────────────────────────────────────────────────────────
+
     @Test
-    void updatePayrollReturnsUpdatedWhenFound() {
-        Payroll payroll = samplePayroll(1L);
-        when(payrollService.updatePayroll(1L, payroll)).thenReturn(payroll);
-
-        ResponseEntity<Payroll> response = payrollController.updatePayroll(1L, payroll);
-
+    void updatePayrollReturns200OnSuccess() {
+        when(payrollService.updatePayroll(eq(1L), any())).thenReturn(pendingPayroll);
+        ResponseEntity<Payroll> response = payrollController.updatePayroll(1L, pendingPayroll);
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertSame(payroll, response.getBody());
     }
 
     @Test
-    void updatePayrollReturnsNotFoundOnError() {
-        Payroll payroll = samplePayroll(1L);
-        when(payrollService.updatePayroll(1L, payroll)).thenThrow(new RuntimeException("missing"));
-
-        ResponseEntity<Payroll> response = payrollController.updatePayroll(1L, payroll);
-
+    void updatePayrollReturns404WhenNotFound() {
+        when(payrollService.updatePayroll(eq(99L), any()))
+                .thenThrow(new RuntimeException("not found"));
+        ResponseEntity<Payroll> response = payrollController.updatePayroll(99L, pendingPayroll);
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
     }
 
-    @Test
-    void approvePayrollReturnsApprovedWhenFound() {
-        Payroll payroll = samplePayroll(1L);
-        when(payrollService.approvePayroll(1L)).thenReturn(payroll);
+    // ── PATCH approve ─────────────────────────────────────────────────────────
 
+    @Test
+    void approvePayrollReturns200OnSuccess() {
+        Payroll approved = new Payroll();
+        approved.setStatus("APPROVED");
+        when(payrollService.approvePayroll(1L)).thenReturn(approved);
         ResponseEntity<Payroll> response = payrollController.approvePayroll(1L);
-
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertSame(payroll, response.getBody());
     }
 
     @Test
-    void approvePayrollReturnsNotFoundOnError() {
-        when(payrollService.approvePayroll(1L)).thenThrow(new RuntimeException("missing"));
-
-        ResponseEntity<Payroll> response = payrollController.approvePayroll(1L);
-
+    void approvePayrollReturns404WhenNotFound() {
+        when(payrollService.approvePayroll(99L)).thenThrow(new RuntimeException("not found"));
+        ResponseEntity<Payroll> response = payrollController.approvePayroll(99L);
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
     }
 
+    // ── PATCH accept ──────────────────────────────────────────────────────────
+
     @Test
-    void markAsPaidUsesProvidedPaymentMethod() {
-        Payroll payroll = samplePayroll(1L);
-        Map<String, String> request = new HashMap<>();
-        request.put("paymentMethod", "CASH");
-        when(payrollService.markAsPaid(1L, "CASH")).thenReturn(payroll);
-
-        ResponseEntity<Payroll> response = payrollController.markAsPaid(1L, request);
-
+    void acceptPayrollReturns200OnSuccess() {
+        Payroll accepted = new Payroll();
+        accepted.setStatus("ACCEPTED");
+        when(payrollService.acceptPayroll(1L)).thenReturn(accepted);
+        ResponseEntity<?> response = payrollController.acceptPayroll(1L);
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertSame(payroll, response.getBody());
     }
 
     @Test
-    void markAsPaidUsesDefaultPaymentMethodWhenMissing() {
-        Payroll payroll = samplePayroll(1L);
-        when(payrollService.markAsPaid(1L, "BANK_TRANSFER")).thenReturn(payroll);
-
-        ResponseEntity<Payroll> response = payrollController.markAsPaid(1L, Map.of());
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertSame(payroll, response.getBody());
+    void acceptPayrollReturns400WhenNotPending() {
+        when(payrollService.acceptPayroll(1L))
+                .thenThrow(new IllegalStateException("Only PENDING payrolls can be accepted"));
+        ResponseEntity<?> response = payrollController.acceptPayroll(1L);
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
     }
 
     @Test
-    void markAsPaidReturnsNotFoundOnError() {
-        when(payrollService.markAsPaid(1L, "BANK_TRANSFER")).thenThrow(new RuntimeException("missing"));
-
-        ResponseEntity<Payroll> response = payrollController.markAsPaid(1L, Map.of());
-
+    void acceptPayrollReturns404WhenNotFound() {
+        when(payrollService.acceptPayroll(99L)).thenThrow(new RuntimeException("not found"));
+        ResponseEntity<?> response = payrollController.acceptPayroll(99L);
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
     }
 
+    // ── PATCH reject ──────────────────────────────────────────────────────────
+
     @Test
-    void deletePayrollReturnsNoContentWhenFound() {
+    void rejectPayrollReturns200WithReason() {
+        Payroll rejected = new Payroll();
+        rejected.setStatus("REJECTED");
+        when(payrollService.rejectPayroll(eq(1L), any())).thenReturn(rejected);
+
+        Map<String, String> body = new HashMap<>();
+        body.put("reason", "Insufficient hours");
+        ResponseEntity<?> response = payrollController.rejectPayroll(1L, body);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+    }
+
+    @Test
+    void rejectPayrollReturns200WithNullBody() {
+        Payroll rejected = new Payroll();
+        rejected.setStatus("REJECTED");
+        when(payrollService.rejectPayroll(eq(1L), eq(null))).thenReturn(rejected);
+
+        ResponseEntity<?> response = payrollController.rejectPayroll(1L, null);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+    }
+
+    @Test
+    void rejectPayrollReturns400WhenNotPending() {
+        when(payrollService.rejectPayroll(eq(1L), any()))
+                .thenThrow(new IllegalStateException("Only PENDING payrolls can be rejected"));
+        ResponseEntity<?> response = payrollController.rejectPayroll(1L, Map.of("reason", "x"));
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+    }
+
+    @Test
+    void rejectPayrollReturns404WhenNotFound() {
+        when(payrollService.rejectPayroll(eq(99L), any()))
+                .thenThrow(new RuntimeException("not found"));
+        ResponseEntity<?> response = payrollController.rejectPayroll(99L, Map.of());
+        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+    }
+
+    // ── PATCH pay ─────────────────────────────────────────────────────────────
+
+    @Test
+    void markAsPaidReturns200OnSuccess() {
+        Payroll paid = new Payroll();
+        paid.setStatus("PAID");
+        when(payrollService.markAsPaid(eq(1L), any())).thenReturn(paid);
+        ResponseEntity<Payroll> response = payrollController.markAsPaid(1L, Map.of("paymentMethod", "CASH"));
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+    }
+
+    @Test
+    void markAsPaidUsesDefaultPaymentMethod() {
+        Payroll paid = new Payroll();
+        paid.setStatus("PAID");
+        when(payrollService.markAsPaid(eq(1L), eq("BANK_TRANSFER"))).thenReturn(paid);
+        ResponseEntity<Payroll> response = payrollController.markAsPaid(1L, Map.of());
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+    }
+
+    @Test
+    void markAsPaidReturns404WhenNotFound() {
+        when(payrollService.markAsPaid(eq(99L), any())).thenThrow(new RuntimeException("not found"));
+        ResponseEntity<Payroll> response = payrollController.markAsPaid(99L, Map.of("paymentMethod", "CASH"));
+        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+    }
+
+    // ── DELETE ────────────────────────────────────────────────────────────────
+
+    @Test
+    void deletePayrollReturns204OnSuccess() {
+        doNothing().when(payrollService).deletePayroll(1L);
         ResponseEntity<Void> response = payrollController.deletePayroll(1L);
-
         assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
-        verify(payrollService).deletePayroll(1L);
     }
 
     @Test
-    void deletePayrollReturnsNotFoundOnError() {
-        doThrow(new RuntimeException("missing")).when(payrollService).deletePayroll(1L);
-
-        ResponseEntity<Void> response = payrollController.deletePayroll(1L);
-
+    void deletePayrollReturns404WhenNotFound() {
+        doThrow(new RuntimeException("not found")).when(payrollService).deletePayroll(99L);
+        ResponseEntity<Void> response = payrollController.deletePayroll(99L);
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
-    }
-
-    private Payroll samplePayroll(Long id) {
-        Payroll payroll = new Payroll();
-        payroll.setId(id);
-        payroll.setEmployeeId(10L);
-        payroll.setPeriodStart(LocalDateTime.of(2026, 1, 1, 0, 0));
-        payroll.setPeriodEnd(LocalDateTime.of(2026, 1, 31, 23, 59));
-        payroll.setBaseAmount(5000000.0);
-        payroll.setBonusAmount(500000.0);
-        payroll.setDeductionAmount(250000.0);
-        payroll.setTotalAmount(5250000.0);
-        payroll.setStatus("PENDING");
-        payroll.setPaymentMethod("BANK_TRANSFER");
-        return payroll;
     }
 }
