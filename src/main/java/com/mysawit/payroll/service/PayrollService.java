@@ -57,6 +57,31 @@ public class PayrollService {
         return payrollRepository.save(payroll);
     }
 
+    /** Accept a payroll (alias for ACCEPTED status, semantically same as approve). */
+    public Payroll acceptPayroll(Long id) {
+        Payroll payroll = payrollRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Payroll not found with id: " + id));
+        if (!"PENDING".equals(payroll.getStatus())) {
+            throw new IllegalStateException("Only PENDING payrolls can be accepted. Current status: " + payroll.getStatus());
+        }
+        payroll.setStatus("ACCEPTED");
+        return payrollRepository.save(payroll);
+    }
+
+    /** Reject a payroll with an optional reason stored in notes. */
+    public Payroll rejectPayroll(Long id, String reason) {
+        Payroll payroll = payrollRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Payroll not found with id: " + id));
+        if (!"PENDING".equals(payroll.getStatus())) {
+            throw new IllegalStateException("Only PENDING payrolls can be rejected. Current status: " + payroll.getStatus());
+        }
+        payroll.setStatus("REJECTED");
+        if (reason != null && !reason.isBlank()) {
+            payroll.setNotes(reason);
+        }
+        return payrollRepository.save(payroll);
+    }
+
     public Payroll markAsPaid(Long id, String paymentMethod) {
         Payroll payroll = payrollRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Payroll not found with id: " + id));
