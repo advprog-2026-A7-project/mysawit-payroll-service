@@ -256,7 +256,7 @@ class PayrollServiceTest {
         event.setAmount(10000.0);
         when(payrollRepository.findByEventId("evt-1")).thenReturn(null);
         when(payrollRepository.save(any())).thenReturn(new Payroll());
-        payrollService.identityClient = null; // Simulasi tanpa identity client
+        payrollService.setIdentityClient(null); // Simulasi tanpa identity client
         payrollService.processHarvestPayroll(event);
         verify(payrollRepository).save(any(Payroll.class));
     }
@@ -278,7 +278,7 @@ class PayrollServiceTest {
         event.setAmount(20000.0);
         when(payrollRepository.findByEventId("evt-3")).thenReturn(null);
         when(payrollRepository.save(any())).thenReturn(new Payroll());
-        payrollService.identityClient = null;
+        payrollService.setIdentityClient(null);
         payrollService.processShipmentPayroll(event);
         verify(payrollRepository).save(any(Payroll.class));
     }
@@ -300,8 +300,8 @@ class PayrollServiceTest {
         event.setAmount(15000.0);
         when(payrollRepository.findByEventId("evt-5")).thenReturn(null);
         when(payrollRepository.save(any())).thenReturn(new Payroll());
-        payrollService.identityClient = identityClient;
-        payrollService.identityServiceToken = "token";
+        payrollService.setIdentityClient(identityClient);
+        payrollService.setIdentityServiceToken("token");
         java.util.Map<String, Object> userMap = new java.util.HashMap<>();
         userMap.put("username", "testuser");
         when(identityClient.getUserById(12L, "Bearer token")).thenReturn(userMap);
@@ -317,8 +317,8 @@ class PayrollServiceTest {
         event.setAmount(16000.0);
         when(payrollRepository.findByEventId("evt-6")).thenReturn(null);
         when(payrollRepository.save(any())).thenReturn(new Payroll());
-        payrollService.identityClient = identityClient;
-        payrollService.identityServiceToken = "token";
+        payrollService.setIdentityClient(identityClient);
+        payrollService.setIdentityServiceToken("token");
         when(identityClient.getUserById(13L, "Bearer token")).thenThrow(new RuntimeException("fail"));
         payrollService.processHarvestPayroll(event);
         verify(payrollRepository).save(any(Payroll.class));
