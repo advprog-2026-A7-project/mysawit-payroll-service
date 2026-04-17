@@ -55,7 +55,7 @@ class WageConfigTest {
     @Test
     void onCreateSetsTimestamps() throws Exception {
         WageConfig wageConfig = new WageConfig();
-        var method = WageConfig.class.getDeclaredMethod("onCreate");
+        var method = BaseEntity.class.getDeclaredMethod("onCreate");
         method.setAccessible(true);
         method.invoke(wageConfig);
 
@@ -66,7 +66,7 @@ class WageConfigTest {
     @Test
     void onUpdateSetsUpdatedAt() throws Exception {
         WageConfig wageConfig = new WageConfig();
-        var method = WageConfig.class.getDeclaredMethod("onUpdate");
+        var method = BaseEntity.class.getDeclaredMethod("onUpdate");
         method.setAccessible(true);
         method.invoke(wageConfig);
 

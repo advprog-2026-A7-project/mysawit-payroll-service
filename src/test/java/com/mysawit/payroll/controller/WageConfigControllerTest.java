@@ -13,7 +13,6 @@ import org.springframework.http.ResponseEntity;
 
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -137,7 +136,7 @@ class WageConfigControllerTest {
     @Test
     void patchConfigReturns200OnSuccess() {
         when(wageConfigService.updateConfig(eq(1L), any())).thenReturn(buruh);
-        ResponseEntity<?> response = wageConfigController.patchConfig(1L, buruh);
+        ResponseEntity<?> response = wageConfigController.updateConfig(1L, buruh);
         assertEquals(HttpStatus.OK, response.getStatusCode());
     }
 
@@ -145,7 +144,7 @@ class WageConfigControllerTest {
     void patchConfigReturns404WhenNotFound() {
         when(wageConfigService.updateConfig(eq(99L), any()))
                 .thenThrow(new RuntimeException("not found"));
-        ResponseEntity<?> response = wageConfigController.patchConfig(99L, buruh);
+        ResponseEntity<?> response = wageConfigController.updateConfig(99L, buruh);
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
     }
 
@@ -153,7 +152,7 @@ class WageConfigControllerTest {
     void patchConfigReturns400OnInvalidRole() {
         when(wageConfigService.updateConfig(eq(1L), any()))
                 .thenThrow(new IllegalArgumentException("Invalid roleType"));
-        ResponseEntity<?> response = wageConfigController.patchConfig(1L, buruh);
+        ResponseEntity<?> response = wageConfigController.updateConfig(1L, buruh);
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
     }
 

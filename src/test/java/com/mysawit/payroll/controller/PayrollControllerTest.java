@@ -11,7 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
-import java.time.LocalDateTime;
+import com.mysawit.payroll.PayrollTestFixtures;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,16 +35,7 @@ class PayrollControllerTest {
 
     @BeforeEach
     void setUp() {
-        pendingPayroll = new Payroll();
-        pendingPayroll.setId(1L);
-        pendingPayroll.setEmployeeId(10L);
-        pendingPayroll.setStatus("PENDING");
-        pendingPayroll.setBaseAmount(5000000.0);
-        pendingPayroll.setBonusAmount(500000.0);
-        pendingPayroll.setDeductionAmount(250000.0);
-        pendingPayroll.setTotalAmount(5250000.0);
-        pendingPayroll.setPeriodStart(LocalDateTime.of(2026, 1, 1, 0, 0));
-        pendingPayroll.setPeriodEnd(LocalDateTime.of(2026, 1, 31, 23, 59));
+        pendingPayroll = PayrollTestFixtures.pendingPayroll();
     }
 
     // ── GET all ───────────────────────────────────────────────────────────────
