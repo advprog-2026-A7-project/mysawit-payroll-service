@@ -17,6 +17,9 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+import com.mysawit.payroll.event.HarvestEvent;
+import com.mysawit.payroll.event.ShipmentEvent;
+
 @ExtendWith(MockitoExtension.class)
 class PayrollServiceTest {
 
@@ -240,4 +243,48 @@ class PayrollServiceTest {
         when(payrollRepository.findById(99L)).thenReturn(Optional.empty());
         assertThrows(RuntimeException.class, () -> payrollService.deletePayroll(99L));
     }
+    // ── processHarvestPayroll & processShipmentPayroll ───────────────
+
+    @Test
+    void processHarvestPayrollShouldSavePayrollIfNotExists() {
+        HarvestEvent event = new HarvestEvent();
+        event.setEventId("evt-1");
+        event.setEmployeeId("10");
+        event.setAmount(10000.0);
+        when(payrollRepository.findByEventId("evt-1")).thenReturn(null);
+        when(payrollRepository.save(any())).thenReturn(new Payroll());
+        payrollService.processHarvestPayroll(event);
+        verify(payrollRepository).save(any(Payroll.class));
+    }
+
+    @Test
+    void processHarvestPayrollShouldNotSaveIfAlreadyExists() {
+        HarvestEvent event = new HarvestEvent();
+        event.setEventId("evt-2");
+        when(payrollRepository.findByEventId("evt-2")).thenReturn(new Payroll());
+        payrollService.processHarvestPayroll(event);
+        verify(payrollRepository, never()).save(any());
+    }
+
+    @Test
+    void processShipmentPayrollShouldSavePayrollIfNotExists() {
+        ShipmentEvent event = new ShipmentEvent();
+        event.setEventId("evt-3");
+        event.setEmployeeId("11");
+        event.setAmount(20000.0);
+        when(payrollRepository.findByEventId("evt-3")).thenReturn(null);
+        when(payrollRepository.save(any())).thenReturn(new Payroll());
+        payrollService.processShipmentPayroll(event);
+        verify(payrollRepository).save(any(Payroll.class));
+    }
+
+    @Test
+    void processShipmentPayrollShouldNotSaveIfAlreadyExists() {
+        ShipmentEvent event = new ShipmentEvent();
+        event.setEventId("evt-4");
+        when(payrollRepository.findByEventId("evt-4")).thenReturn(new Payroll());
+        payrollService.processShipmentPayroll(event);
+        verify(payrollRepository, never()).save(any());
+    }
+
 }
