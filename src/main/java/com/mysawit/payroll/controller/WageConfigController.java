@@ -73,20 +73,8 @@ public class WageConfigController {
     // ── Update ────────────────────────────────────────────────────────────────
 
     @PutMapping("/{id}")
-    public ResponseEntity<?> updateConfig(@PathVariable Long id, @RequestBody WageConfig wageConfig) {
-        try {
-            WageConfig updated = wageConfigService.updateConfig(id, wageConfig);
-            return ResponseEntity.ok(updated);
-        } catch (RuntimeException e) {
-            if (e.getMessage().contains("not found")) {
-                return ResponseEntity.notFound().build();
-            }
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
-    }
-
     @PatchMapping("/{id}")
-    public ResponseEntity<?> patchConfig(@PathVariable Long id, @RequestBody WageConfig wageConfig) {
+    public ResponseEntity<?> updateConfig(@PathVariable Long id, @RequestBody WageConfig wageConfig) {
         try {
             WageConfig updated = wageConfigService.updateConfig(id, wageConfig);
             return ResponseEntity.ok(updated);
