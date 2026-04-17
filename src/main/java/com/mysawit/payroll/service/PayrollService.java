@@ -9,11 +9,22 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import com.mysawit.payroll.event.HarvestEvent;
+import com.mysawit.payroll.event.ShipmentEvent;
+import com.mysawit.payroll.client.IdentityClient;
+import org.springframework.beans.factory.annotation.Value;
+
 @Service
 public class PayrollService {
 
     @Autowired
     private PayrollRepository payrollRepository;
+
+    @Autowired(required = false)
+    private IdentityClient identityClient;
+
+    @Value("${identity.service.token:}")
+    private String identityServiceToken;
 
     public List<Payroll> getAllPayrolls() {
         return payrollRepository.findAll();
@@ -95,5 +106,57 @@ public class PayrollService {
         Payroll payroll = payrollRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Payroll not found with id: " + id));
         payrollRepository.delete(payroll);
+    }
+
+    // === Event-driven Payroll Generation ===
+
+    public void processHarvestPayroll(HarvestEvent event) {
+        // Idempotency: cek jika payroll dengan eventId sudah ada
+        if (payrollRepository.findByEventId(event.getEventId()) != null) {
+            return; // Sudah diproses
+        }
+        Payroll payroll = new Payroll();
+        payroll.setEmployeeId(Long.valueOf(event.getEmployeeId()));
+        payroll.setBaseAmount(event.getAmount());
+        payroll.setBonusAmount(0.0);
+        payroll.setDeductionAmount(0.0);
+        payroll.setStatus("PENDING");
+        payroll.setPeriodStart(java.time.LocalDateTime.now());
+        payroll.setPeriodEnd(java.time.LocalDateTime.now());
+        payroll.setNotes("Generated from HarvestEvent: " + event.getEventId());
+        payroll.setEventId(event.getEventId());
+
+        // Fetch user detail dari identity service
+        if (identityClient != null && identityServiceToken != null && !identityServiceToken.isBlank()) {
+            try {
+                var userDetail = identityClient.getUserById(Long.valueOf(event.getEmployeeId()), "Bearer " + identityServiceToken);
+                if (userDetail != null && userDetail.get("username") != null) {
+                    payroll.setNotes(payroll.getNotes() + ", user: " + userDetail.get("username"));
+                }
+            } catch (Exception e) {
+                payroll.setNotes(payroll.getNotes() + ", user fetch failed");
+            }
+        }
+
+        payrollRepository.save(payroll);
+    }
+
+
+    public void processShipmentPayroll(ShipmentEvent event) {
+        // Idempotency: cek jika payroll dengan eventId sudah ada
+        if (payrollRepository.findByEventId(event.getEventId()) != null) {
+            return; // Sudah diproses
+        }
+        Payroll payroll = new Payroll();
+        payroll.setEmployeeId(Long.valueOf(event.getEmployeeId()));
+        payroll.setBaseAmount(event.getAmount());
+        payroll.setBonusAmount(0.0);
+        payroll.setDeductionAmount(0.0);
+        payroll.setStatus("PENDING");
+        payroll.setPeriodStart(java.time.LocalDateTime.now());
+        payroll.setPeriodEnd(java.time.LocalDateTime.now());
+        payroll.setNotes("Generated from ShipmentEvent: " + event.getEventId());
+        payroll.setEventId(event.getEventId());
+        payrollRepository.save(payroll);
     }
 }
