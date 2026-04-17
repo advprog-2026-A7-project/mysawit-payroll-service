@@ -248,12 +248,25 @@ class PayrollServiceTest {
     @Mock
     private com.mysawit.payroll.client.IdentityClient identityClient;
 
+    private HarvestEvent createHarvestEvent(String eventId, String empId, double amt) {
+        HarvestEvent e = new HarvestEvent();
+        e.setEventId(eventId);
+        e.setEmployeeId(empId);
+        e.setAmount(amt);
+        return e;
+    }
+
+    private ShipmentEvent createShipmentEvent(String eventId, String empId, double amt) {
+        ShipmentEvent e = new ShipmentEvent();
+        e.setEventId(eventId);
+        e.setEmployeeId(empId);
+        e.setAmount(amt);
+        return e;
+    }
+
     @Test
-    void processHarvestPayrollShouldSavePayrollIfNotExists() {
-        HarvestEvent event = new HarvestEvent();
-        event.setEventId("evt-1");
-        event.setEmployeeId("10");
-        event.setAmount(10000.0);
+    void processPayrollSaveWhenNotExists() {
+        HarvestEvent event = createHarvestEvent("evt-1", "10", 10000.0);
         when(payrollRepository.findByEventId("evt-1")).thenReturn(null);
         when(payrollRepository.save(any())).thenReturn(new Payroll());
         payrollService.setIdentityClient(null);
@@ -262,20 +275,16 @@ class PayrollServiceTest {
     }
 
     @Test
-    void processPayrollEventShouldNotSaveIfAlreadyExists() {
-        HarvestEvent event = new HarvestEvent();
-        event.setEventId("evt-2");
+    void processPayrollSkipWhenExists() {
+        HarvestEvent event = createHarvestEvent("evt-2", "10", 10000.0);
         when(payrollRepository.findByEventId("evt-2")).thenReturn(new Payroll());
         payrollService.processHarvestPayroll(event);
         verify(payrollRepository, never()).save(any());
     }
 
     @Test
-    void processShipmentPayrollShouldSavePayrollIfNotExists() {
-        ShipmentEvent event = new ShipmentEvent();
-        event.setEventId("evt-3");
-        event.setEmployeeId("11");
-        event.setAmount(20000.0);
+    void processShipmentPayroll() {
+        ShipmentEvent event = createShipmentEvent("evt-3", "11", 20000.0);
         when(payrollRepository.findByEventId("evt-3")).thenReturn(null);
         when(payrollRepository.save(any())).thenReturn(new Payroll());
         payrollService.setIdentityClient(null);
@@ -284,11 +293,8 @@ class PayrollServiceTest {
     }
 
     @Test
-    void processPayrollWithUserDetailSuccess() {
-        HarvestEvent event = new HarvestEvent();
-        event.setEventId("evt-5");
-        event.setEmployeeId("12");
-        event.setAmount(15000.0);
+    void processPayrollWithUserSuccess() {
+        HarvestEvent event = createHarvestEvent("evt-5", "12", 15000.0);
         when(payrollRepository.findByEventId("evt-5")).thenReturn(null);
         when(payrollRepository.save(any())).thenReturn(new Payroll());
         payrollService.setIdentityClient(identityClient);
@@ -301,11 +307,8 @@ class PayrollServiceTest {
     }
 
     @Test
-    void processPayrollWithUserDetailError() {
-        HarvestEvent event = new HarvestEvent();
-        event.setEventId("evt-6");
-        event.setEmployeeId("13");
-        event.setAmount(16000.0);
+    void processPayrollWithUserError() {
+        HarvestEvent event = createHarvestEvent("evt-6", "13", 16000.0);
         when(payrollRepository.findByEventId("evt-6")).thenReturn(null);
         when(payrollRepository.save(any())).thenReturn(new Payroll());
         payrollService.setIdentityClient(identityClient);
@@ -316,17 +319,13 @@ class PayrollServiceTest {
     }
 
     @Test
-    void processPayrollWithNullUsernameInResponse() {
-        HarvestEvent event = new HarvestEvent();
-        event.setEventId("evt-7");
-        event.setEmployeeId("14");
-        event.setAmount(17000.0);
+    void processPayrollWithNullUser() {
+        HarvestEvent event = createHarvestEvent("evt-7", "14", 17000.0);
         when(payrollRepository.findByEventId("evt-7")).thenReturn(null);
         when(payrollRepository.save(any())).thenReturn(new Payroll());
         payrollService.setIdentityClient(identityClient);
         payrollService.setIdentityServiceToken("token");
-        java.util.Map<String, Object> emptyMap = new java.util.HashMap<>();
-        when(identityClient.getUserById(14L, "Bearer token")).thenReturn(emptyMap);
+        when(identityClient.getUserById(14L, "Bearer token")).thenReturn(new java.util.HashMap<>());
         payrollService.processHarvestPayroll(event);
         verify(payrollRepository).save(any(Payroll.class));
     }
