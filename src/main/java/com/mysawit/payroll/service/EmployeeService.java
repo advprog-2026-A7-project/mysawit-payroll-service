@@ -39,9 +39,7 @@ public class EmployeeService {
     }
 
     public Employee updateEmployee(Long id, Employee employeeDetails) {
-        Employee employee = employeeRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Employee not found with id: " + id));
-
+        Employee employee = getEmployeeOrThrow(id);
         employee.setName(employeeDetails.getName());
         employee.setPosition(employeeDetails.getPosition());
         employee.setPlantationId(employeeDetails.getPlantationId());
@@ -49,13 +47,15 @@ public class EmployeeService {
         employee.setAddress(employeeDetails.getAddress());
         employee.setBaseSalary(employeeDetails.getBaseSalary());
         employee.setStatus(employeeDetails.getStatus());
-
         return employeeRepository.save(employee);
     }
 
     public void deleteEmployee(Long id) {
-        Employee employee = employeeRepository.findById(id)
+        employeeRepository.delete(getEmployeeOrThrow(id));
+    }
+
+    private Employee getEmployeeOrThrow(Long id) {
+        return employeeRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Employee not found with id: " + id));
-        employeeRepository.delete(employee);
     }
 }

@@ -47,9 +47,7 @@ public class PayrollService {
     }
 
     public Payroll updatePayroll(Long id, Payroll payrollDetails) {
-        Payroll payroll = payrollRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Payroll not found with id: " + id));
-
+        Payroll payroll = getPayrollOrThrow(id);
         payroll.setBaseAmount(payrollDetails.getBaseAmount());
         payroll.setBonusAmount(payrollDetails.getBonusAmount());
         payroll.setDeductionAmount(payrollDetails.getDeductionAmount());
@@ -57,21 +55,17 @@ public class PayrollService {
         payroll.setPaymentDate(payrollDetails.getPaymentDate());
         payroll.setPaymentMethod(payrollDetails.getPaymentMethod());
         payroll.setNotes(payrollDetails.getNotes());
-
         return payrollRepository.save(payroll);
     }
 
     public Payroll approvePayroll(Long id) {
-        Payroll payroll = payrollRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Payroll not found with id: " + id));
+        Payroll payroll = getPayrollOrThrow(id);
         payroll.setStatus("APPROVED");
         return payrollRepository.save(payroll);
     }
 
-    /** Accept a payroll (alias for ACCEPTED status, semantically same as approve). */
     public Payroll acceptPayroll(Long id) {
-        Payroll payroll = payrollRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Payroll not found with id: " + id));
+        Payroll payroll = getPayrollOrThrow(id);
         if (!"PENDING".equals(payroll.getStatus())) {
             throw new IllegalStateException("Only PENDING payrolls can be accepted. Current status: " + payroll.getStatus());
         }
@@ -79,10 +73,8 @@ public class PayrollService {
         return payrollRepository.save(payroll);
     }
 
-    /** Reject a payroll with an optional reason stored in notes. */
     public Payroll rejectPayroll(Long id, String reason) {
-        Payroll payroll = payrollRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Payroll not found with id: " + id));
+        Payroll payroll = getPayrollOrThrow(id);
         if (!"PENDING".equals(payroll.getStatus())) {
             throw new IllegalStateException("Only PENDING payrolls can be rejected. Current status: " + payroll.getStatus());
         }
@@ -94,8 +86,7 @@ public class PayrollService {
     }
 
     public Payroll markAsPaid(Long id, String paymentMethod) {
-        Payroll payroll = payrollRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Payroll not found with id: " + id));
+        Payroll payroll = getPayrollOrThrow(id);
         payroll.setStatus("PAID");
         payroll.setPaymentDate(LocalDateTime.now());
         payroll.setPaymentMethod(paymentMethod);
@@ -103,9 +94,7 @@ public class PayrollService {
     }
 
     public void deletePayroll(Long id) {
-        Payroll payroll = payrollRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Payroll not found with id: " + id));
-        payrollRepository.delete(payroll);
+        payrollRepository.delete(getPayrollOrThrow(id));
     }
 
     // === Event-driven Payroll Generation ===
@@ -114,12 +103,10 @@ public class PayrollService {
         processPayrollEvent(event.getEventId(), event.getEmployeeId(), event.getAmount(), "HarvestEvent");
     }
 
-
     public void processShipmentPayroll(ShipmentEvent event) {
         processPayrollEvent(event.getEventId(), event.getEmployeeId(), event.getAmount(), "ShipmentEvent");
     }
 
-    // --- Refactored common logic for event payroll ---
     private void processPayrollEvent(String eventId, String employeeId, double amount, String eventType) {
         if (payrollRepository.findByEventId(eventId) != null) {
             return;
@@ -130,12 +117,11 @@ public class PayrollService {
         payroll.setBonusAmount(0.0);
         payroll.setDeductionAmount(0.0);
         payroll.setStatus("PENDING");
-        payroll.setPeriodStart(java.time.LocalDateTime.now());
-        payroll.setPeriodEnd(java.time.LocalDateTime.now());
+        payroll.setPeriodStart(LocalDateTime.now());
+        payroll.setPeriodEnd(LocalDateTime.now());
         payroll.setNotes("Generated from " + eventType + ": " + eventId);
         payroll.setEventId(eventId);
 
-        // Fetch user detail dari identity service
         if (identityClient != null && identityServiceToken != null && !identityServiceToken.isBlank()) {
             try {
                 var userDetail = identityClient.getUserById(Long.valueOf(employeeId), "Bearer " + identityServiceToken);
@@ -150,7 +136,11 @@ public class PayrollService {
         payrollRepository.save(payroll);
     }
 
-    // Setter untuk unit test
+    private Payroll getPayrollOrThrow(Long id) {
+        return payrollRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Payroll not found with id: " + id));
+    }
+
     void setIdentityClient(IdentityClient identityClient) {
         this.identityClient = identityClient;
     }

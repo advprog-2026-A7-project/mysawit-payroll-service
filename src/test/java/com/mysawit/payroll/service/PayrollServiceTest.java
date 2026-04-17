@@ -17,7 +17,9 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+import com.mysawit.payroll.PayrollTestFixtures;
 import com.mysawit.payroll.event.HarvestEvent;
+import com.mysawit.payroll.event.PayrollEvent;
 import com.mysawit.payroll.event.ShipmentEvent;
 
 @ExtendWith(MockitoExtension.class)
@@ -34,16 +36,7 @@ class PayrollServiceTest {
 
     @BeforeEach
     void setUp() {
-        pendingPayroll = new Payroll();
-        pendingPayroll.setId(1L);
-        pendingPayroll.setEmployeeId(10L);
-        pendingPayroll.setBaseAmount(5000000.0);
-        pendingPayroll.setBonusAmount(500000.0);
-        pendingPayroll.setDeductionAmount(250000.0);
-        pendingPayroll.setTotalAmount(5250000.0);
-        pendingPayroll.setStatus("PENDING");
-        pendingPayroll.setPeriodStart(LocalDateTime.of(2026, 1, 1, 0, 0));
-        pendingPayroll.setPeriodEnd(LocalDateTime.of(2026, 1, 31, 23, 59));
+        pendingPayroll = PayrollTestFixtures.pendingPayroll();
 
         approvedPayroll = new Payroll();
         approvedPayroll.setId(2L);
@@ -248,20 +241,19 @@ class PayrollServiceTest {
     @Mock
     private com.mysawit.payroll.client.IdentityClient identityClient;
 
+    private <T extends PayrollEvent> T createEvent(T event, String eventId, String empId, double amt) {
+        event.setEventId(eventId);
+        event.setEmployeeId(empId);
+        event.setAmount(amt);
+        return event;
+    }
+
     private HarvestEvent createHarvestEvent(String eventId, String empId, double amt) {
-        HarvestEvent e = new HarvestEvent();
-        e.setEventId(eventId);
-        e.setEmployeeId(empId);
-        e.setAmount(amt);
-        return e;
+        return createEvent(new HarvestEvent(), eventId, empId, amt);
     }
 
     private ShipmentEvent createShipmentEvent(String eventId, String empId, double amt) {
-        ShipmentEvent e = new ShipmentEvent();
-        e.setEventId(eventId);
-        e.setEmployeeId(empId);
-        e.setAmount(amt);
-        return e;
+        return createEvent(new ShipmentEvent(), eventId, empId, amt);
     }
 
     @Test

@@ -15,8 +15,6 @@ public class WageConfigService {
     @Autowired
     private WageConfigRepository wageConfigRepository;
 
-    // ── Read ──────────────────────────────────────────────────────────────────
-
     public List<WageConfig> getAllConfigs() {
         return wageConfigRepository.findAll();
     }
@@ -29,16 +27,11 @@ public class WageConfigService {
         return wageConfigRepository.findByRoleTypeOrderByEffectiveDateDesc(roleType.toUpperCase());
     }
 
-    /**
-     * Returns the currently active (latest effective) config for the given role.
-     */
     public Optional<WageConfig> getActiveConfigForRole(String roleType) {
         List<WageConfig> configs = wageConfigRepository
                 .findActiveConfigForRole(roleType.toUpperCase(), LocalDate.now());
         return configs.isEmpty() ? Optional.empty() : Optional.of(configs.get(0));
     }
-
-    // ── Create ────────────────────────────────────────────────────────────────
 
     public WageConfig createConfig(WageConfig wageConfig) {
         validateRoleType(wageConfig.getRoleType());
@@ -46,12 +39,8 @@ public class WageConfigService {
         return wageConfigRepository.save(wageConfig);
     }
 
-    // ── Update ────────────────────────────────────────────────────────────────
-
     public WageConfig updateConfig(Long id, WageConfig details) {
-        WageConfig existing = wageConfigRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("WageConfig not found with id: " + id));
-
+        WageConfig existing = getConfigOrThrow(id);
         if (details.getRoleType() != null) {
             validateRoleType(details.getRoleType());
             existing.setRoleType(details.getRoleType().toUpperCase());
@@ -68,19 +57,17 @@ public class WageConfigService {
         if (details.getCreatedBy() != null) {
             existing.setCreatedBy(details.getCreatedBy());
         }
-
         return wageConfigRepository.save(existing);
     }
 
-    // ── Delete ────────────────────────────────────────────────────────────────
-
     public void deleteConfig(Long id) {
-        WageConfig existing = wageConfigRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("WageConfig not found with id: " + id));
-        wageConfigRepository.delete(existing);
+        wageConfigRepository.delete(getConfigOrThrow(id));
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    private WageConfig getConfigOrThrow(Long id) {
+        return wageConfigRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("WageConfig not found with id: " + id));
+    }
 
     private void validateRoleType(String roleType) {
         String upper = roleType.toUpperCase();
