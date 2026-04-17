@@ -1,11 +1,3 @@
-    // Setter untuk unit test
-    void setIdentityClient(IdentityClient identityClient) {
-        this.identityClient = identityClient;
-    }
-
-    void setIdentityServiceToken(String token) {
-        this.identityServiceToken = token;
-    }
 package com.mysawit.payroll.service;
 
 import com.mysawit.payroll.model.Payroll;
@@ -156,5 +148,14 @@ public class PayrollService {
         }
 
         payrollRepository.save(payroll);
+    }
+
+    // Setter untuk unit test
+    void setIdentityClient(IdentityClient identityClient) {
+        this.identityClient = identityClient;
+    }
+
+    void setIdentityServiceToken(String token) {
+        this.identityServiceToken = token;
     }
 }
