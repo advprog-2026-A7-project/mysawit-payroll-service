@@ -1,5 +1,6 @@
 package com.mysawit.payroll.service;
 
+import com.mysawit.payroll.event.UserRegisteredEvent;
 import com.mysawit.payroll.model.Employee;
 import com.mysawit.payroll.repository.EmployeeRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +24,7 @@ class EmployeeServiceTest {
         employeeRepository = mock(EmployeeRepository.class);
         employeeService = new EmployeeService();
         ReflectionTestUtils.setField(employeeService, "employeeRepository", employeeRepository);
+        ReflectionTestUtils.setField(employeeService, "defaultBaseSalary", 0.0);
     }
 
     @Test
@@ -70,6 +72,39 @@ class EmployeeServiceTest {
         Employee result = employeeService.createEmployee(employee);
 
         assertSame(employee, result);
+    }
+
+    @Test
+    void createEmployeeFromUserRegisteredReturnsExistingEmployee() {
+        UserRegisteredEvent event = new UserRegisteredEvent();
+        event.setUserId(42L);
+        Employee existing = new Employee();
+        existing.setEmployeeCode("USER-42");
+        when(employeeRepository.findByEmployeeCode("USER-42")).thenReturn(Optional.of(existing));
+
+        Employee result = employeeService.createEmployeeFromUserRegistered(event);
+
+        assertSame(existing, result);
+        verify(employeeRepository, never()).save(any());
+    }
+
+    @Test
+    void createEmployeeFromUserRegisteredCreatesEmployee() {
+        UserRegisteredEvent event = new UserRegisteredEvent();
+        event.setId(7L);
+        event.setUsername("sari");
+        event.setRole("HARVESTER");
+        when(employeeRepository.findByEmployeeCode("USER-7")).thenReturn(Optional.empty());
+        when(employeeRepository.save(any(Employee.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Employee result = employeeService.createEmployeeFromUserRegistered(event);
+
+        assertEquals("sari", result.getName());
+        assertEquals("USER-7", result.getEmployeeCode());
+        assertEquals("HARVESTER", result.getPosition());
+        assertEquals(0.0, result.getBaseSalary());
+        assertEquals("ACTIVE", result.getStatus());
+        assertNotNull(result.getHireDate());
     }
 
     @Test
