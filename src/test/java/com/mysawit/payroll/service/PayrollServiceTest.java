@@ -1,10 +1,17 @@
 package com.mysawit.payroll.service;
 
+import com.mysawit.payroll.PayrollTestFixtures;
+import com.mysawit.payroll.event.HarvestEvent;
+import com.mysawit.payroll.event.PayrollEvent;
+import com.mysawit.payroll.event.ShipmentEvent;
 import com.mysawit.payroll.model.Payroll;
+import com.mysawit.payroll.model.UserReplica;
 import com.mysawit.payroll.repository.PayrollRepository;
+import com.mysawit.payroll.repository.UserReplicaRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -17,16 +24,16 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-import com.mysawit.payroll.PayrollTestFixtures;
-import com.mysawit.payroll.event.HarvestEvent;
-import com.mysawit.payroll.event.PayrollEvent;
-import com.mysawit.payroll.event.ShipmentEvent;
-
 @ExtendWith(MockitoExtension.class)
 class PayrollServiceTest {
 
+    private static final String USER_ID = PayrollTestFixtures.SAMPLE_USER_ID;
+
     @Mock
     private PayrollRepository payrollRepository;
+
+    @Mock
+    private UserReplicaRepository userReplicaRepository;
 
     @InjectMocks
     private PayrollService payrollService;
@@ -48,8 +55,7 @@ class PayrollServiceTest {
     @Test
     void getAllPayrollsReturnsList() {
         when(payrollRepository.findAll()).thenReturn(List.of(pendingPayroll));
-        List<Payroll> result = payrollService.getAllPayrolls();
-        assertEquals(1, result.size());
+        assertEquals(1, payrollService.getAllPayrolls().size());
     }
 
     // ── getPayrollById ────────────────────────────────────────────────────────
@@ -57,8 +63,7 @@ class PayrollServiceTest {
     @Test
     void getPayrollByIdFoundReturnsOptional() {
         when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
-        Optional<Payroll> result = payrollService.getPayrollById(1L);
-        assertTrue(result.isPresent());
+        assertTrue(payrollService.getPayrollById(1L).isPresent());
     }
 
     @Test
@@ -67,13 +72,12 @@ class PayrollServiceTest {
         assertTrue(payrollService.getPayrollById(99L).isEmpty());
     }
 
-    // ── getPayrollsByEmployee ─────────────────────────────────────────────────
+    // ── getPayrollsByUser ─────────────────────────────────────────────────────
 
     @Test
-    void getPayrollsByEmployeeReturnsList() {
-        when(payrollRepository.findByEmployeeId(10L)).thenReturn(List.of(pendingPayroll));
-        List<Payroll> result = payrollService.getPayrollsByEmployee(10L);
-        assertEquals(1, result.size());
+    void getPayrollsByUserReturnsList() {
+        when(payrollRepository.findByUserId(USER_ID)).thenReturn(List.of(pendingPayroll));
+        assertEquals(1, payrollService.getPayrollsByUser(USER_ID).size());
     }
 
     // ── getPayrollsByStatus ───────────────────────────────────────────────────
@@ -81,8 +85,7 @@ class PayrollServiceTest {
     @Test
     void getPayrollsByStatusReturnsList() {
         when(payrollRepository.findByStatus("PENDING")).thenReturn(List.of(pendingPayroll));
-        List<Payroll> result = payrollService.getPayrollsByStatus("PENDING");
-        assertEquals(1, result.size());
+        assertEquals(1, payrollService.getPayrollsByStatus("PENDING").size());
     }
 
     // ── createPayroll ─────────────────────────────────────────────────────────
@@ -236,90 +239,78 @@ class PayrollServiceTest {
         when(payrollRepository.findById(99L)).thenReturn(Optional.empty());
         assertThrows(RuntimeException.class, () -> payrollService.deletePayroll(99L));
     }
-    // ── processHarvestPayroll & processShipmentPayroll ───────────────
 
-    @Mock
-    private com.mysawit.payroll.client.IdentityClient identityClient;
+    // ── processHarvestPayroll & processShipmentPayroll ────────────────────────
 
-    private <T extends PayrollEvent> T createEvent(T event, String eventId, String empId, double amt) {
+    private <T extends PayrollEvent> T createEvent(T event, String eventId, String userId, double amt) {
         event.setEventId(eventId);
-        event.setEmployeeId(empId);
+        event.setEmployeeId(userId);
         event.setAmount(amt);
         return event;
     }
 
-    private HarvestEvent createHarvestEvent(String eventId, String empId, double amt) {
-        return createEvent(new HarvestEvent(), eventId, empId, amt);
+    private HarvestEvent createHarvestEvent(String eventId, String userId, double amt) {
+        return createEvent(new HarvestEvent(), eventId, userId, amt);
     }
 
-    private ShipmentEvent createShipmentEvent(String eventId, String empId, double amt) {
-        return createEvent(new ShipmentEvent(), eventId, empId, amt);
+    private ShipmentEvent createShipmentEvent(String eventId, String userId, double amt) {
+        return createEvent(new ShipmentEvent(), eventId, userId, amt);
     }
 
     @Test
-    void processPayrollSaveWhenNotExists() {
-        HarvestEvent event = createHarvestEvent("evt-1", "10", 10000.0);
+    void processHarvestPayrollSavesWhenEventIdNotSeen() {
+        HarvestEvent event = createHarvestEvent("evt-1", USER_ID, 10000.0);
         when(payrollRepository.findByEventId("evt-1")).thenReturn(null);
+        when(userReplicaRepository.findById(USER_ID)).thenReturn(Optional.empty());
         when(payrollRepository.save(any())).thenReturn(new Payroll());
-        payrollService.setIdentityClient(null);
+
         payrollService.processHarvestPayroll(event);
-        verify(payrollRepository).save(any(Payroll.class));
+
+        ArgumentCaptor<Payroll> captor = ArgumentCaptor.forClass(Payroll.class);
+        verify(payrollRepository).save(captor.capture());
+        Payroll saved = captor.getValue();
+        assertEquals(USER_ID, saved.getUserId());
+        assertEquals(10000.0, saved.getBaseAmount());
+        assertEquals("PENDING", saved.getStatus());
+        assertEquals("evt-1", saved.getEventId());
+        assertEquals("Generated from HarvestEvent: evt-1", saved.getNotes());
     }
 
     @Test
-    void processPayrollSkipWhenExists() {
-        HarvestEvent event = createHarvestEvent("evt-2", "10", 10000.0);
+    void processHarvestPayrollSkipsWhenEventIdAlreadySeen() {
+        HarvestEvent event = createHarvestEvent("evt-2", USER_ID, 10000.0);
         when(payrollRepository.findByEventId("evt-2")).thenReturn(new Payroll());
+
         payrollService.processHarvestPayroll(event);
+
         verify(payrollRepository, never()).save(any());
+        verifyNoInteractions(userReplicaRepository);
     }
 
     @Test
-    void processShipmentPayroll() {
-        ShipmentEvent event = createShipmentEvent("evt-3", "11", 20000.0);
+    void processShipmentPayrollSavesWhenEventIdNotSeen() {
+        ShipmentEvent event = createShipmentEvent("evt-3", USER_ID, 20000.0);
         when(payrollRepository.findByEventId("evt-3")).thenReturn(null);
+        when(userReplicaRepository.findById(USER_ID)).thenReturn(Optional.empty());
         when(payrollRepository.save(any())).thenReturn(new Payroll());
-        payrollService.setIdentityClient(null);
+
         payrollService.processShipmentPayroll(event);
+
         verify(payrollRepository).save(any(Payroll.class));
     }
 
     @Test
-    void processPayrollWithUserSuccess() {
-        HarvestEvent event = createHarvestEvent("evt-5", "12", 15000.0);
-        when(payrollRepository.findByEventId("evt-5")).thenReturn(null);
+    void processPayrollEnrichesNotesWhenUserReplicaPresent() {
+        HarvestEvent event = createHarvestEvent("evt-4", USER_ID, 15000.0);
+        when(payrollRepository.findByEventId("evt-4")).thenReturn(null);
+        when(userReplicaRepository.findById(USER_ID))
+                .thenReturn(Optional.of(new UserReplica(USER_ID, "sari", "BURUH")));
         when(payrollRepository.save(any())).thenReturn(new Payroll());
-        payrollService.setIdentityClient(identityClient);
-        payrollService.setIdentityServiceToken("token");
-        java.util.Map<String, Object> userMap = new java.util.HashMap<>();
-        userMap.put("username", "testuser");
-        when(identityClient.getUserById(12L, "Bearer token")).thenReturn(userMap);
-        payrollService.processHarvestPayroll(event);
-        verify(payrollRepository).save(any(Payroll.class));
-    }
 
-    @Test
-    void processPayrollWithUserError() {
-        HarvestEvent event = createHarvestEvent("evt-6", "13", 16000.0);
-        when(payrollRepository.findByEventId("evt-6")).thenReturn(null);
-        when(payrollRepository.save(any())).thenReturn(new Payroll());
-        payrollService.setIdentityClient(identityClient);
-        payrollService.setIdentityServiceToken("token");
-        when(identityClient.getUserById(13L, "Bearer token")).thenThrow(new RuntimeException("fail"));
         payrollService.processHarvestPayroll(event);
-        verify(payrollRepository).save(any(Payroll.class));
-    }
 
-    @Test
-    void processPayrollWithNullUser() {
-        HarvestEvent event = createHarvestEvent("evt-7", "14", 17000.0);
-        when(payrollRepository.findByEventId("evt-7")).thenReturn(null);
-        when(payrollRepository.save(any())).thenReturn(new Payroll());
-        payrollService.setIdentityClient(identityClient);
-        payrollService.setIdentityServiceToken("token");
-        when(identityClient.getUserById(14L, "Bearer token")).thenReturn(new java.util.HashMap<>());
-        payrollService.processHarvestPayroll(event);
-        verify(payrollRepository).save(any(Payroll.class));
+        ArgumentCaptor<Payroll> captor = ArgumentCaptor.forClass(Payroll.class);
+        verify(payrollRepository).save(captor.capture());
+        assertEquals("Generated from HarvestEvent: evt-4, user: sari", captor.getValue().getNotes());
     }
-
 }

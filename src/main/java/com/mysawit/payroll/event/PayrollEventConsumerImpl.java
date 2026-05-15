@@ -1,6 +1,7 @@
 package com.mysawit.payroll.event;
 
-import com.mysawit.payroll.service.EmployeeService;
+import com.mysawit.payroll.model.UserReplica;
+import com.mysawit.payroll.repository.UserReplicaRepository;
 import com.mysawit.payroll.service.PayrollService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,7 +17,7 @@ public class PayrollEventConsumerImpl implements PayrollEventConsumer {
     private PayrollService payrollService;
 
     @Autowired
-    private EmployeeService employeeService;
+    private UserReplicaRepository userReplicaRepository;
 
     @Override
     @RabbitListener(queues = "${payroll.rabbitmq.queues.harvest:payroll_queue}")
@@ -35,7 +36,17 @@ public class PayrollEventConsumerImpl implements PayrollEventConsumer {
     @Override
     @RabbitListener(queues = "${payroll.rabbitmq.queues.user-registered:user.registered.queue}")
     public void handleUserRegisteredEvent(UserRegisteredEvent event) {
-        log.info("Received user registered event for user: {}", event.resolveUserId());
-        employeeService.createEmployeeFromUserRegistered(event);
+        if (event.getUserId() == null || event.getUserId().isBlank()) {
+            log.warn("Skipping user.registered event without userId: {}", event);
+            return;
+        }
+        log.info("Received user.registered event for userId={}", event.getUserId());
+
+        UserReplica replica = userReplicaRepository.findById(event.getUserId())
+                .orElseGet(UserReplica::new);
+        replica.setId(event.getUserId());
+        replica.setName(event.getUsername() != null ? event.getUsername() : event.getEmail());
+        replica.setRole(event.getRole());
+        userReplicaRepository.save(replica);
     }
 }

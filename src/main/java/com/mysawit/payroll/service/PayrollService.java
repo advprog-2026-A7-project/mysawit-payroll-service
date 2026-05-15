@@ -1,7 +1,10 @@
 package com.mysawit.payroll.service;
 
+import com.mysawit.payroll.event.HarvestEvent;
+import com.mysawit.payroll.event.ShipmentEvent;
 import com.mysawit.payroll.model.Payroll;
 import com.mysawit.payroll.repository.PayrollRepository;
+import com.mysawit.payroll.repository.UserReplicaRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -9,22 +12,14 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
-import com.mysawit.payroll.event.HarvestEvent;
-import com.mysawit.payroll.event.ShipmentEvent;
-import com.mysawit.payroll.client.IdentityClient;
-import org.springframework.beans.factory.annotation.Value;
-
 @Service
 public class PayrollService {
 
     @Autowired
     private PayrollRepository payrollRepository;
 
-    @Autowired(required = false)
-    private IdentityClient identityClient;
-
-    @Value("${identity.service.token:}")
-    private String identityServiceToken;
+    @Autowired
+    private UserReplicaRepository userReplicaRepository;
 
     public List<Payroll> getAllPayrolls() {
         return payrollRepository.findAll();
@@ -34,8 +29,8 @@ public class PayrollService {
         return payrollRepository.findById(id);
     }
 
-    public List<Payroll> getPayrollsByEmployee(Long employeeId) {
-        return payrollRepository.findByEmployeeId(employeeId);
+    public List<Payroll> getPayrollsByUser(String userId) {
+        return payrollRepository.findByUserId(userId);
     }
 
     public List<Payroll> getPayrollsByStatus(String status) {
@@ -107,45 +102,33 @@ public class PayrollService {
         processPayrollEvent(event.getEventId(), event.getEmployeeId(), event.getAmount(), "ShipmentEvent");
     }
 
-    private void processPayrollEvent(String eventId, String employeeId, double amount, String eventType) {
+    private void processPayrollEvent(String eventId, String userId, double amount, String eventType) {
         if (payrollRepository.findByEventId(eventId) != null) {
             return;
         }
         Payroll payroll = new Payroll();
-        payroll.setEmployeeId(Long.valueOf(employeeId));
+        payroll.setUserId(userId);
         payroll.setBaseAmount(amount);
         payroll.setBonusAmount(0.0);
         payroll.setDeductionAmount(0.0);
         payroll.setStatus("PENDING");
         payroll.setPeriodStart(LocalDateTime.now());
         payroll.setPeriodEnd(LocalDateTime.now());
-        payroll.setNotes("Generated from " + eventType + ": " + eventId);
+        payroll.setNotes(buildNotes(eventType, eventId, userId));
         payroll.setEventId(eventId);
 
-        if (identityClient != null && identityServiceToken != null && !identityServiceToken.isBlank()) {
-            try {
-                var userDetail = identityClient.getUserById(Long.valueOf(employeeId), "Bearer " + identityServiceToken);
-                if (userDetail != null && userDetail.get("username") != null) {
-                    payroll.setNotes(payroll.getNotes() + ", user: " + userDetail.get("username"));
-                }
-            } catch (Exception e) {
-                payroll.setNotes(payroll.getNotes() + ", user fetch failed");
-            }
-        }
-
         payrollRepository.save(payroll);
+    }
+
+    private String buildNotes(String eventType, String eventId, String userId) {
+        String base = "Generated from " + eventType + ": " + eventId;
+        return userReplicaRepository.findById(userId)
+                .map(user -> base + ", user: " + user.getName())
+                .orElse(base);
     }
 
     private Payroll getPayrollOrThrow(Long id) {
         return payrollRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Payroll not found with id: " + id));
-    }
-
-    void setIdentityClient(IdentityClient identityClient) {
-        this.identityClient = identityClient;
-    }
-
-    void setIdentityServiceToken(String token) {
-        this.identityServiceToken = token;
     }
 }

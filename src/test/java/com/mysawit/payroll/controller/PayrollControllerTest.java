@@ -64,12 +64,13 @@ class PayrollControllerTest {
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
     }
 
-    // ── GET by employee ───────────────────────────────────────────────────────
+    // ── GET by user ───────────────────────────────────────────────────────────
 
     @Test
-    void getPayrollsByEmployeeReturns200() {
-        when(payrollService.getPayrollsByEmployee(10L)).thenReturn(List.of(pendingPayroll));
-        ResponseEntity<List<Payroll>> response = payrollController.getPayrollsByEmployee(10L);
+    void getPayrollsByUserReturns200() {
+        String userId = com.mysawit.payroll.PayrollTestFixtures.SAMPLE_USER_ID;
+        when(payrollService.getPayrollsByUser(userId)).thenReturn(List.of(pendingPayroll));
+        ResponseEntity<List<Payroll>> response = payrollController.getPayrollsByUser(userId);
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(1, response.getBody().size());
     }

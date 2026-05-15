@@ -14,8 +14,8 @@ public class Payroll {
     @Column(name = "event_id", unique = true)
     private String eventId; // Untuk idempotency event
 
-    @Column(name = "employee_id", nullable = false)
-    private Long employeeId;
+    @Column(name = "user_id", nullable = false)
+    private String userId;
 
     @Column(name = "period_start", nullable = false)
     private LocalDateTime periodStart;
@@ -73,8 +73,8 @@ public class Payroll {
     // Constructors
     public Payroll() {}
 
-    public Payroll(Long employeeId, LocalDateTime periodStart, LocalDateTime periodEnd, Double baseAmount, String status) {
-        this.employeeId = employeeId;
+    public Payroll(String userId, LocalDateTime periodStart, LocalDateTime periodEnd, Double baseAmount, String status) {
+        this.userId = userId;
         this.periodStart = periodStart;
         this.periodEnd = periodEnd;
         this.baseAmount = baseAmount;
@@ -101,12 +101,12 @@ public class Payroll {
         this.id = id;
     }
 
-    public Long getEmployeeId() {
-        return employeeId;
+    public String getUserId() {
+        return userId;
     }
 
-    public void setEmployeeId(Long employeeId) {
-        this.employeeId = employeeId;
+    public void setUserId(String userId) {
+        this.userId = userId;
     }
 
     public LocalDateTime getPeriodStart() {

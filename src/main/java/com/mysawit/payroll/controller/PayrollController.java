@@ -30,9 +30,9 @@ public class PayrollController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    @GetMapping("/employee/{employeeId}")
-    public ResponseEntity<List<Payroll>> getPayrollsByEmployee(@PathVariable Long employeeId) {
-        return ResponseEntity.ok(payrollService.getPayrollsByEmployee(employeeId));
+    @GetMapping("/user/{userId}")
+    public ResponseEntity<List<Payroll>> getPayrollsByUser(@PathVariable String userId) {
+        return ResponseEntity.ok(payrollService.getPayrollsByUser(userId));
     }
 
     @GetMapping("/status/{status}")

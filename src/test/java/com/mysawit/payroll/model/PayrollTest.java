@@ -21,7 +21,7 @@ class PayrollTest {
         assertEquals(0.0, payroll.getDeductionAmount());
 
         payroll.setId(1L);
-        payroll.setEmployeeId(2L);
+        payroll.setUserId("11111111-1111-1111-1111-111111111111");
         payroll.setPeriodStart(periodStart);
         payroll.setPeriodEnd(periodEnd);
         payroll.setBaseAmount(5000000.0);
@@ -36,7 +36,7 @@ class PayrollTest {
         payroll.setUpdatedAt(updatedAt);
 
         assertEquals(1L, payroll.getId());
-        assertEquals(2L, payroll.getEmployeeId());
+        assertEquals("11111111-1111-1111-1111-111111111111", payroll.getUserId());
         assertEquals(periodStart, payroll.getPeriodStart());
         assertEquals(periodEnd, payroll.getPeriodEnd());
         assertEquals(5000000.0, payroll.getBaseAmount());
@@ -54,7 +54,7 @@ class PayrollTest {
     @Test
     void customConstructorCalculatesTotal() {
         Payroll payroll = new Payroll(
-                2L,
+                "11111111-1111-1111-1111-111111111111",
                 LocalDateTime.of(2026, 1, 1, 0, 0),
                 LocalDateTime.of(2026, 1, 31, 23, 59),
                 5000000.0,
