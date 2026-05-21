@@ -17,6 +17,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -95,6 +96,28 @@ class PayrollServiceTest {
         assertEquals(1, payrollService.getPayrollsByStatus("PENDING").size());
     }
 
+    @Test
+    void searchPayrollsCoversEveryFilterCombination() {
+        LocalDateTime start = LocalDateTime.of(2026, 5, 1, 0, 0);
+        LocalDateTime end = LocalDateTime.of(2026, 5, 31, 23, 59);
+        when(payrollRepository.findByUserIdAndStatusAndPeriodStartBetween(USER_ID, "PENDING", start, end))
+                .thenReturn(List.of(pendingPayroll));
+        when(payrollRepository.findByUserIdAndStatus(USER_ID, "PENDING")).thenReturn(List.of(pendingPayroll));
+        when(payrollRepository.findByUserIdAndPeriodStartBetween(USER_ID, start, end)).thenReturn(List.of(pendingPayroll));
+        when(payrollRepository.findByStatus("PENDING")).thenReturn(List.of(pendingPayroll));
+        when(payrollRepository.findByPeriodStartBetween(start, end)).thenReturn(List.of(pendingPayroll));
+        when(payrollRepository.findByUserId(USER_ID)).thenReturn(List.of(pendingPayroll));
+        when(payrollRepository.findAll()).thenReturn(List.of(pendingPayroll));
+
+        assertEquals(1, payrollService.searchPayrolls(USER_ID, "pending", start, end).size());
+        assertEquals(1, payrollService.searchPayrolls(USER_ID, "PENDING", null, null).size());
+        assertEquals(1, payrollService.searchPayrolls(USER_ID, null, start, end).size());
+        assertEquals(1, payrollService.searchPayrolls(null, "PENDING", null, null).size());
+        assertEquals(1, payrollService.searchPayrolls(null, null, start, end).size());
+        assertEquals(1, payrollService.searchPayrolls(USER_ID, null, null, null).size());
+        assertEquals(1, payrollService.searchPayrolls(null, null, null, null).size());
+    }
+
     // ── createPayroll ─────────────────────────────────────────────────────────
 
     @Test
@@ -102,6 +125,33 @@ class PayrollServiceTest {
         when(payrollRepository.save(any())).thenReturn(pendingPayroll);
         Payroll result = payrollService.createPayroll(pendingPayroll);
         assertEquals("PENDING", result.getStatus());
+    }
+
+    @Test
+    void createPayrollDefaultsNullableFieldsAndNormalizesRole() {
+        Payroll payroll = new Payroll();
+        payroll.setUserId(USER_ID);
+        payroll.setRoleType("buruh");
+        payroll.setBaseAmount(null);
+        payroll.setBonusAmount(null);
+        payroll.setDeductionAmount(null);
+        payroll.setWalletSettled(null);
+        when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Payroll result = payrollService.createPayroll(payroll);
+
+        assertEquals("PENDING", result.getStatus());
+        assertEquals("BURUH", result.getRoleType());
+        assertEquals(0.0, result.getBaseAmount());
+        assertEquals(0.0, result.getBonusAmount());
+        assertEquals(0.0, result.getDeductionAmount());
+        assertFalse(result.getWalletSettled());
+    }
+
+    @Test
+    void createPayrollRejectsMissingUserId() {
+        Payroll payroll = new Payroll();
+        assertThrows(IllegalArgumentException.class, () -> payrollService.createPayroll(payroll));
     }
 
     // ── updatePayroll ─────────────────────────────────────────────────────────
@@ -113,6 +163,10 @@ class PayrollServiceTest {
         updates.setBonusAmount(600000.0);
         updates.setDeductionAmount(300000.0);
         updates.setStatus("APPROVED");
+        updates.setRoleType("mandor");
+        updates.setSourceType("SHIPMENT");
+        updates.setSourceReference("shipment-1");
+        updates.setKilograms(80.0);
         updates.setPaymentMethod("CASH");
         updates.setNotes("Updated");
         updates.setPaymentDate(LocalDateTime.now());
@@ -122,6 +176,10 @@ class PayrollServiceTest {
 
         Payroll result = payrollService.updatePayroll(1L, updates);
         assertEquals("APPROVED", result.getStatus());
+        assertEquals("MANDOR", result.getRoleType());
+        assertEquals("SHIPMENT", result.getSourceType());
+        assertEquals("shipment-1", result.getSourceReference());
+        assertEquals(80.0, result.getKilograms());
         assertEquals(6000000.0, result.getBaseAmount());
     }
 
@@ -149,6 +207,44 @@ class PayrollServiceTest {
     void approvePayrollThrowsWhenNotFound() {
         when(payrollRepository.findById(99L)).thenReturn(Optional.empty());
         assertThrows(RuntimeException.class, () -> payrollService.approvePayroll(99L));
+    }
+
+    @Test
+    void approvePayrollRejectsRejectedOrPaidPayrolls() {
+        Payroll rejected = PayrollTestFixtures.pendingPayroll();
+        rejected.setStatus("REJECTED");
+        when(payrollRepository.findById(1L)).thenReturn(Optional.of(rejected));
+        assertThrows(IllegalStateException.class, () -> payrollService.approvePayroll(1L));
+
+        Payroll paid = PayrollTestFixtures.pendingPayroll();
+        paid.setStatus("PAID");
+        when(payrollRepository.findById(2L)).thenReturn(Optional.of(paid));
+        assertThrows(IllegalStateException.class, () -> payrollService.approvePayroll(2L));
+    }
+
+    @Test
+    void approvePayrollDoesNotTransferWalletTwiceAndDefaultsBlankAdmin() {
+        pendingPayroll.setWalletSettled(true);
+        pendingPayroll.setApprovedAt(LocalDateTime.of(2026, 5, 1, 12, 0));
+        when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
+        when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Payroll result = payrollService.approvePayroll(1L, " ");
+
+        assertEquals("admin", result.getApprovedBy());
+        verifyNoInteractions(walletService);
+    }
+
+    @Test
+    void approvePayrollUsesDefaultAdminForWalletTransferWhenAdminBlank() {
+        when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
+        when(walletService.transfer("admin", USER_ID, 5250000.0)).thenReturn(5250000.0);
+        when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Payroll result = payrollService.approvePayroll(1L, " ");
+
+        assertEquals("admin", result.getApprovedBy());
+        assertEquals(5250000.0, result.getWalletTransferAmount());
     }
 
     // ── acceptPayroll ─────────────────────────────────────────────────────────
@@ -210,6 +306,18 @@ class PayrollServiceTest {
         assertThrows(RuntimeException.class, () -> payrollService.rejectPayroll(99L, "reason"));
     }
 
+    @Test
+    void rejectPayrollReturnsAlreadyRejectedPayrollIdempotently() {
+        Payroll rejected = PayrollTestFixtures.pendingPayroll();
+        rejected.setStatus("REJECTED");
+        when(payrollRepository.findById(1L)).thenReturn(Optional.of(rejected));
+
+        Payroll result = payrollService.rejectPayroll(1L, "reason");
+
+        assertSame(rejected, result);
+        verify(payrollRepository, never()).save(any());
+    }
+
     // ── markAsPaid ────────────────────────────────────────────────────────────
 
     @Test
@@ -228,6 +336,29 @@ class PayrollServiceTest {
     void markAsPaidThrowsWhenNotFound() {
         when(payrollRepository.findById(99L)).thenReturn(Optional.empty());
         assertThrows(RuntimeException.class, () -> payrollService.markAsPaid(99L, "CASH"));
+    }
+
+    @Test
+    void markAsPaidIsIdempotentWhenAlreadyPaid() {
+        pendingPayroll.setStatus("PAID");
+        when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
+
+        Payroll result = payrollService.markAsPaid(1L, "CASH");
+
+        assertSame(pendingPayroll, result);
+        verify(payrollRepository, never()).save(any());
+    }
+
+    @Test
+    void markAsPaidRejectsNonApprovedPayrollAndDefaultsBlankMethod() {
+        when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
+        assertThrows(IllegalStateException.class, () -> payrollService.markAsPaid(1L, "CASH"));
+
+        approvedPayroll.setUserId(USER_ID);
+        when(payrollRepository.findById(2L)).thenReturn(Optional.of(approvedPayroll));
+        when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        Payroll result = payrollService.markAsPaid(2L, " ");
+        assertEquals("SANDBOX", result.getPaymentMethod());
     }
 
     // ── deletePayroll ─────────────────────────────────────────────────────────
@@ -307,6 +438,57 @@ class PayrollServiceTest {
     }
 
     @Test
+    void processShipmentPayrollCreatesDriverAndMandorPayrolls() {
+        ShipmentEvent event = new ShipmentEvent();
+        event.setEventId("shipment-event");
+        event.setDriverId("driver-1");
+        event.setMandorId("mandor-1");
+        event.setTotalKg(100.0);
+        event.setRecognizedKg(80.0);
+        event.setSourceReference("shipment-001");
+        event.setTimestamp(1779400000000L);
+        when(payrollRepository.findByEventId("shipment-event:SUPIR:driver-1")).thenReturn(null);
+        when(payrollRepository.findByEventId("shipment-event:MANDOR:mandor-1")).thenReturn(null);
+        when(wageConfigService.getActiveConfigForRole("SUPIR"))
+                .thenReturn(Optional.of(new WageConfig("SUPIR", 250.0, java.time.LocalDate.now())));
+        when(wageConfigService.getActiveConfigForRole("MANDOR"))
+                .thenReturn(Optional.of(new WageConfig("MANDOR", 150.0, java.time.LocalDate.now())));
+        when(userReplicaRepository.findById(any())).thenReturn(Optional.empty());
+        when(payrollRepository.save(any())).thenReturn(new Payroll());
+
+        payrollService.processShipmentPayroll(event);
+
+        ArgumentCaptor<Payroll> captor = ArgumentCaptor.forClass(Payroll.class);
+        verify(payrollRepository, times(2)).save(captor.capture());
+        assertEquals("SUPIR", captor.getAllValues().get(0).getRoleType());
+        assertEquals(22500.0, captor.getAllValues().get(0).getBaseAmount());
+        assertEquals("MANDOR", captor.getAllValues().get(1).getRoleType());
+        assertEquals(10800.0, captor.getAllValues().get(1).getBaseAmount());
+        assertEquals("shipment-001", captor.getAllValues().get(0).getSourceReference());
+    }
+
+    @Test
+    void processShipmentPayrollUsesRoleTypeFallbackWhenNoDriverOrMandor() {
+        ShipmentEvent event = new ShipmentEvent();
+        event.setEventId("shipment-fallback");
+        event.setEmployeeId(USER_ID);
+        event.setRoleType("MANDOR");
+        event.setRecognizedKg(50.0);
+        when(payrollRepository.findByEventId("shipment-fallback:MANDOR:" + USER_ID)).thenReturn(null);
+        when(wageConfigService.getActiveConfigForRole("MANDOR"))
+                .thenReturn(Optional.of(new WageConfig("MANDOR", 150.0, java.time.LocalDate.now())));
+        when(userReplicaRepository.findById(USER_ID)).thenReturn(Optional.empty());
+        when(payrollRepository.save(any())).thenReturn(new Payroll());
+
+        payrollService.processShipmentPayroll(event);
+
+        ArgumentCaptor<Payroll> captor = ArgumentCaptor.forClass(Payroll.class);
+        verify(payrollRepository).save(captor.capture());
+        assertEquals("MANDOR", captor.getValue().getRoleType());
+        assertEquals(6750.0, captor.getValue().getBaseAmount());
+    }
+
+    @Test
     void processPayrollEnrichesNotesWhenUserReplicaPresent() {
         HarvestEvent event = createHarvestEvent("evt-4", USER_ID, 15000.0);
         when(payrollRepository.findByEventId("evt-4:BURUH:" + USER_ID)).thenReturn(null);
@@ -337,5 +519,76 @@ class PayrollServiceTest {
         verify(payrollRepository).save(captor.capture());
         assertEquals(31500.0, captor.getValue().getBaseAmount());
         assertEquals(100.0, captor.getValue().getKilograms());
+    }
+
+    @Test
+    void processHarvestPayrollRejectsInvalidEventsAndMissingWageConfig() {
+        HarvestEvent missingEmployee = createHarvestEvent("evt-invalid", " ", 1000.0);
+        assertThrows(IllegalArgumentException.class, () -> payrollService.processHarvestPayroll(missingEmployee));
+
+        HarvestEvent missingEventId = createHarvestEvent(" ", USER_ID, 1000.0);
+        assertThrows(IllegalArgumentException.class, () -> payrollService.processHarvestPayroll(missingEventId));
+
+        HarvestEvent missingAmount = createHarvestEvent("evt-no-amount", USER_ID, 0.0);
+        assertThrows(IllegalArgumentException.class, () -> payrollService.processHarvestPayroll(missingAmount));
+
+        HarvestEvent missingConfig = createHarvestEvent("evt-no-config", USER_ID, 0.0);
+        missingConfig.setKilograms(10.0);
+        when(wageConfigService.getActiveConfigForRole("BURUH")).thenReturn(Optional.empty());
+        assertThrows(IllegalStateException.class, () -> payrollService.processHarvestPayroll(missingConfig));
+    }
+
+    @Test
+    void createPayrollRejectsInvalidRoleAndStatus() {
+        Payroll invalidRole = new Payroll();
+        invalidRole.setUserId(USER_ID);
+        invalidRole.setRoleType("BAD");
+        assertThrows(IllegalArgumentException.class, () -> payrollService.createPayroll(invalidRole));
+
+        Payroll invalidStatus = new Payroll();
+        invalidStatus.setUserId(USER_ID);
+        invalidStatus.setStatus("UNKNOWN");
+        assertThrows(IllegalArgumentException.class, () -> payrollService.createPayroll(invalidStatus));
+
+        Payroll blankRole = new Payroll();
+        blankRole.setUserId(USER_ID);
+        blankRole.setRoleType(" ");
+        assertThrows(IllegalArgumentException.class, () -> payrollService.createPayroll(blankRole));
+
+        assertThrows(IllegalArgumentException.class, () -> payrollService.getPayrollsByStatus(" "));
+    }
+
+    @Test
+    void privateValidationGuardsRemainCovered() throws Exception {
+        Method processPayrollEvent = PayrollService.class.getDeclaredMethod(
+                "processPayrollEvent",
+                String.class,
+                String.class,
+                String.class,
+                double.class,
+                double.class,
+                String.class,
+                String.class,
+                String.class,
+                LocalDateTime.class);
+        processPayrollEvent.setAccessible(true);
+
+        Exception missingEventId = assertThrows(Exception.class, () -> processPayrollEvent.invoke(
+                payrollService,
+                " ",
+                USER_ID,
+                "BURUH",
+                100.0,
+                1.0,
+                "HARVEST",
+                "harvest-1",
+                "HarvestEvent",
+                LocalDateTime.now()));
+        assertTrue(missingEventId.getCause() instanceof IllegalArgumentException);
+
+        Method calculateWage = PayrollService.class.getDeclaredMethod("calculateWage", String.class, double.class);
+        calculateWage.setAccessible(true);
+        Exception invalidKg = assertThrows(Exception.class, () -> calculateWage.invoke(payrollService, "BURUH", 0.0));
+        assertTrue(invalidKg.getCause() instanceof IllegalArgumentException);
     }
 }

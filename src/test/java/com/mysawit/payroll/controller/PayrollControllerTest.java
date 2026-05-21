@@ -108,6 +108,18 @@ class PayrollControllerTest {
         verify(payrollService).processHarvestPayroll(event);
     }
 
+    @Test
+    void processDemoHarvestEventReturns500WhenServiceFails() {
+        HarvestEvent event = new HarvestEvent();
+        event.setEventId("harvest-demo-error");
+        doThrow(new RuntimeException("boom")).when(payrollService).processHarvestPayroll(event);
+
+        ResponseEntity<Map<String, String>> response = payrollController.processDemoHarvestEvent(event);
+
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertEquals("boom", response.getBody().get("error"));
+    }
+
     // ── PUT update ────────────────────────────────────────────────────────────
 
     @Test
@@ -141,6 +153,15 @@ class PayrollControllerTest {
         when(payrollService.approvePayroll(99L, null)).thenThrow(new RuntimeException("not found"));
         ResponseEntity<?> response = payrollController.approvePayroll(99L, null);
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+    }
+
+    @Test
+    void approvePayrollReturns400WhenTransitionInvalid() {
+        when(payrollService.approvePayroll(1L, null)).thenThrow(new IllegalStateException("invalid"));
+
+        ResponseEntity<?> response = payrollController.approvePayroll(1L, null);
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
     }
 
     // ── PATCH accept ──────────────────────────────────────────────────────────
@@ -227,6 +248,21 @@ class PayrollControllerTest {
         when(payrollService.markAsPaid(eq(1L), eq("SANDBOX"))).thenReturn(paid);
         ResponseEntity<?> response = payrollController.markAsPaid(1L, Map.of());
         assertEquals(HttpStatus.OK, response.getStatusCode());
+    }
+
+    @Test
+    void markAsPaidUsesDefaultPaymentMethodForNullBodyAndReturns400WhenInvalid() {
+        Payroll paid = new Payroll();
+        paid.setStatus("PAID");
+        when(payrollService.markAsPaid(1L, "SANDBOX")).thenReturn(paid);
+
+        ResponseEntity<?> response = payrollController.markAsPaid(1L, null);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+
+        when(payrollService.markAsPaid(2L, "CASH")).thenThrow(new IllegalStateException("invalid"));
+        ResponseEntity<?> invalid = payrollController.markAsPaid(2L, Map.of("paymentMethod", "CASH"));
+        assertEquals(HttpStatus.BAD_REQUEST, invalid.getStatusCode());
     }
 
     @Test

@@ -21,7 +21,12 @@ class PayrollTest {
         assertEquals(0.0, payroll.getDeductionAmount());
 
         payroll.setId(1L);
+        payroll.setEventId("event-1");
         payroll.setUserId("11111111-1111-1111-1111-111111111111");
+        payroll.setRoleType("BURUH");
+        payroll.setSourceType("HARVEST");
+        payroll.setSourceReference("harvest-1");
+        payroll.setKilograms(100.0);
         payroll.setPeriodStart(periodStart);
         payroll.setPeriodEnd(periodEnd);
         payroll.setBaseAmount(5000000.0);
@@ -29,6 +34,12 @@ class PayrollTest {
         payroll.setDeductionAmount(250000.0);
         payroll.setTotalAmount(5250000.0);
         payroll.setStatus("PENDING");
+        payroll.setApprovedBy("admin");
+        payroll.setApprovedAt(paymentDate.minusHours(1));
+        payroll.setRejectedAt(paymentDate.minusHours(2));
+        payroll.setRejectionReason("bad data");
+        payroll.setWalletSettled(true);
+        payroll.setWalletTransferAmount(5250000.0);
         payroll.setPaymentDate(paymentDate);
         payroll.setPaymentMethod("BANK_TRANSFER");
         payroll.setNotes("notes");
@@ -36,7 +47,12 @@ class PayrollTest {
         payroll.setUpdatedAt(updatedAt);
 
         assertEquals(1L, payroll.getId());
+        assertEquals("event-1", payroll.getEventId());
         assertEquals("11111111-1111-1111-1111-111111111111", payroll.getUserId());
+        assertEquals("BURUH", payroll.getRoleType());
+        assertEquals("HARVEST", payroll.getSourceType());
+        assertEquals("harvest-1", payroll.getSourceReference());
+        assertEquals(100.0, payroll.getKilograms());
         assertEquals(periodStart, payroll.getPeriodStart());
         assertEquals(periodEnd, payroll.getPeriodEnd());
         assertEquals(5000000.0, payroll.getBaseAmount());
@@ -44,6 +60,12 @@ class PayrollTest {
         assertEquals(250000.0, payroll.getDeductionAmount());
         assertEquals(5250000.0, payroll.getTotalAmount());
         assertEquals("PENDING", payroll.getStatus());
+        assertEquals("admin", payroll.getApprovedBy());
+        assertEquals(paymentDate.minusHours(1), payroll.getApprovedAt());
+        assertEquals(paymentDate.minusHours(2), payroll.getRejectedAt());
+        assertEquals("bad data", payroll.getRejectionReason());
+        assertTrue(payroll.getWalletSettled());
+        assertEquals(5250000.0, payroll.getWalletTransferAmount());
         assertEquals(paymentDate, payroll.getPaymentDate());
         assertEquals("BANK_TRANSFER", payroll.getPaymentMethod());
         assertEquals("notes", payroll.getNotes());
@@ -91,5 +113,17 @@ class PayrollTest {
 
         assertEquals(5000000.0, payroll.getTotalAmount());
         assertTrue(payroll.getUpdatedAt().isAfter(beforeUpdate));
+    }
+
+    @Test
+    void lifecycleHooksTreatNullAmountsAsZero() {
+        Payroll payroll = new Payroll();
+        payroll.setBaseAmount(null);
+        payroll.setBonusAmount(null);
+        payroll.setDeductionAmount(null);
+
+        payroll.onCreate();
+
+        assertEquals(0.0, payroll.getTotalAmount());
     }
 }

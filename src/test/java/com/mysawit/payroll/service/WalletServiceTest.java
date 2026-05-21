@@ -4,6 +4,7 @@ import com.mysawit.payroll.model.PaymentTransaction;
 import com.mysawit.payroll.model.Wallet;
 import com.mysawit.payroll.repository.PaymentTransactionRepository;
 import com.mysawit.payroll.repository.WalletRepository;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -77,6 +78,27 @@ class WalletServiceTest {
     }
 
     @Test
+    void getTransactionsForUserReturnsTransactions() {
+        PaymentTransaction transaction = new PaymentTransaction();
+        when(paymentTransactionRepository.findByUserIdOrderByCreatedAtDesc("admin")).thenReturn(List.of(transaction));
+
+        List<PaymentTransaction> result = walletService.getTransactionsForUser("admin");
+
+        assertEquals(1, result.size());
+    }
+
+    @Test
+    void topUpSandboxDefaultsGatewayWhenMissing() {
+        when(walletRepository.findByUserId("admin")).thenReturn(Optional.of(adminWallet));
+        when(walletRepository.save(any(Wallet.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(paymentTransactionRepository.save(any(PaymentTransaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        PaymentTransaction result = walletService.topUpSandbox("admin", 10.0, " ");
+
+        assertEquals("SANDBOX", result.getGateway());
+    }
+
+    @Test
     void transferMovesBalanceBetweenWallets() {
         when(walletRepository.findByUserId("admin")).thenReturn(Optional.of(adminWallet));
         when(walletRepository.findByUserId("worker-1")).thenReturn(Optional.of(workerWallet));
@@ -102,5 +124,12 @@ class WalletServiceTest {
     @Test
     void topUpSandboxRejectsNonPositiveAmount() {
         assertThrows(IllegalArgumentException.class, () -> walletService.topUpSandbox("admin", 0.0, "sandbox"));
+    }
+
+    @Test
+    void transferRejectsNonPositiveAmountAndInvalidUserIds() {
+        assertThrows(IllegalArgumentException.class, () -> walletService.transfer("admin", "worker-1", 0.0));
+        assertThrows(IllegalArgumentException.class, () -> walletService.getOrCreateWallet(" "));
+        assertThrows(IllegalArgumentException.class, () -> walletService.getTransactionsForUser(null));
     }
 }

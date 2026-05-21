@@ -39,6 +39,7 @@ class PayrollEventTest {
 
     @Test
     void userRegisteredEventConstructorsAndAccessorsWork() {
+        assertNotNull(new UserRegisteredEvent());
         UserRegisteredEvent event = new UserRegisteredEvent("user-1", "u@example.com", "SUPIR", "udi");
 
         assertEquals("user-1", event.getUserId());
