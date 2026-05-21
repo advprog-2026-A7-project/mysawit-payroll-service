@@ -13,6 +13,12 @@ public interface PayrollRepository extends JpaRepository<Payroll, Long> {
     List<Payroll> findByStatus(String status);
     List<Payroll> findByPeriodStartBetween(LocalDateTime start, LocalDateTime end);
     List<Payroll> findByUserIdAndStatus(String userId, String status);
+    List<Payroll> findByUserIdAndPeriodStartBetween(String userId, LocalDateTime start, LocalDateTime end);
+    List<Payroll> findByUserIdAndStatusAndPeriodStartBetween(
+            String userId,
+            String status,
+            LocalDateTime start,
+            LocalDateTime end);
 
     Payroll findByEventId(String eventId);
 }

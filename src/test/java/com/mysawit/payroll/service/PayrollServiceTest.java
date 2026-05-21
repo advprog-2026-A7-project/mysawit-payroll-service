@@ -6,6 +6,7 @@ import com.mysawit.payroll.event.PayrollEvent;
 import com.mysawit.payroll.event.ShipmentEvent;
 import com.mysawit.payroll.model.Payroll;
 import com.mysawit.payroll.model.UserReplica;
+import com.mysawit.payroll.model.WageConfig;
 import com.mysawit.payroll.repository.PayrollRepository;
 import com.mysawit.payroll.repository.UserReplicaRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +35,12 @@ class PayrollServiceTest {
 
     @Mock
     private UserReplicaRepository userReplicaRepository;
+
+    @Mock
+    private WageConfigService wageConfigService;
+
+    @Mock
+    private WalletService walletService;
 
     @InjectMocks
     private PayrollService payrollService;
@@ -129,10 +136,13 @@ class PayrollServiceTest {
     @Test
     void approvePayrollSetsStatusApproved() {
         when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
+        when(walletService.transfer("admin", USER_ID, 5250000.0)).thenReturn(5250000.0);
         when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         Payroll result = payrollService.approvePayroll(1L);
         assertEquals("APPROVED", result.getStatus());
+        assertTrue(result.getWalletSettled());
+        assertEquals(5250000.0, result.getWalletTransferAmount());
     }
 
     @Test
@@ -179,19 +189,13 @@ class PayrollServiceTest {
     @Test
     void rejectPayrollSetsStatusRejectedWithoutReason() {
         when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
-        when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        Payroll result = payrollService.rejectPayroll(1L, null);
-        assertEquals("REJECTED", result.getStatus());
+        assertThrows(IllegalArgumentException.class, () -> payrollService.rejectPayroll(1L, null));
     }
 
     @Test
     void rejectPayrollSetsStatusRejectedWithBlankReason() {
         when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
-        when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        Payroll result = payrollService.rejectPayroll(1L, "  ");
-        assertEquals("REJECTED", result.getStatus());
+        assertThrows(IllegalArgumentException.class, () -> payrollService.rejectPayroll(1L, "  "));
     }
 
     @Test
@@ -210,6 +214,7 @@ class PayrollServiceTest {
 
     @Test
     void markAsPaidSetsStatusPaid() {
+        pendingPayroll.setStatus("APPROVED");
         when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
         when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -260,7 +265,7 @@ class PayrollServiceTest {
     @Test
     void processHarvestPayrollSavesWhenEventIdNotSeen() {
         HarvestEvent event = createHarvestEvent("evt-1", USER_ID, 10000.0);
-        when(payrollRepository.findByEventId("evt-1")).thenReturn(null);
+        when(payrollRepository.findByEventId("evt-1:BURUH:" + USER_ID)).thenReturn(null);
         when(userReplicaRepository.findById(USER_ID)).thenReturn(Optional.empty());
         when(payrollRepository.save(any())).thenReturn(new Payroll());
 
@@ -272,14 +277,16 @@ class PayrollServiceTest {
         assertEquals(USER_ID, saved.getUserId());
         assertEquals(10000.0, saved.getBaseAmount());
         assertEquals("PENDING", saved.getStatus());
-        assertEquals("evt-1", saved.getEventId());
-        assertEquals("Generated from HarvestEvent: evt-1", saved.getNotes());
+        assertEquals("BURUH", saved.getRoleType());
+        assertEquals("HARVEST", saved.getSourceType());
+        assertEquals("evt-1:BURUH:" + USER_ID, saved.getEventId());
+        assertEquals("Generated from HarvestEvent: evt-1:BURUH:" + USER_ID, saved.getNotes());
     }
 
     @Test
     void processHarvestPayrollSkipsWhenEventIdAlreadySeen() {
         HarvestEvent event = createHarvestEvent("evt-2", USER_ID, 10000.0);
-        when(payrollRepository.findByEventId("evt-2")).thenReturn(new Payroll());
+        when(payrollRepository.findByEventId("evt-2:BURUH:" + USER_ID)).thenReturn(new Payroll());
 
         payrollService.processHarvestPayroll(event);
 
@@ -290,7 +297,7 @@ class PayrollServiceTest {
     @Test
     void processShipmentPayrollSavesWhenEventIdNotSeen() {
         ShipmentEvent event = createShipmentEvent("evt-3", USER_ID, 20000.0);
-        when(payrollRepository.findByEventId("evt-3")).thenReturn(null);
+        when(payrollRepository.findByEventId("evt-3:SUPIR:" + USER_ID)).thenReturn(null);
         when(userReplicaRepository.findById(USER_ID)).thenReturn(Optional.empty());
         when(payrollRepository.save(any())).thenReturn(new Payroll());
 
@@ -302,7 +309,7 @@ class PayrollServiceTest {
     @Test
     void processPayrollEnrichesNotesWhenUserReplicaPresent() {
         HarvestEvent event = createHarvestEvent("evt-4", USER_ID, 15000.0);
-        when(payrollRepository.findByEventId("evt-4")).thenReturn(null);
+        when(payrollRepository.findByEventId("evt-4:BURUH:" + USER_ID)).thenReturn(null);
         when(userReplicaRepository.findById(USER_ID))
                 .thenReturn(Optional.of(new UserReplica(USER_ID, "sari", "BURUH")));
         when(payrollRepository.save(any())).thenReturn(new Payroll());
@@ -311,6 +318,24 @@ class PayrollServiceTest {
 
         ArgumentCaptor<Payroll> captor = ArgumentCaptor.forClass(Payroll.class);
         verify(payrollRepository).save(captor.capture());
-        assertEquals("Generated from HarvestEvent: evt-4, user: sari", captor.getValue().getNotes());
+        assertEquals("Generated from HarvestEvent: evt-4:BURUH:" + USER_ID + ", user: sari", captor.getValue().getNotes());
+    }
+
+    @Test
+    void processHarvestPayrollUsesNinetyPercentFormulaWhenKilogramsPresent() {
+        HarvestEvent event = createHarvestEvent("evt-5", USER_ID, 0.0);
+        event.setKilograms(100.0);
+        WageConfig wageConfig = new WageConfig("BURUH", 350.0, java.time.LocalDate.now());
+        when(payrollRepository.findByEventId("evt-5:BURUH:" + USER_ID)).thenReturn(null);
+        when(wageConfigService.getActiveConfigForRole("BURUH")).thenReturn(Optional.of(wageConfig));
+        when(userReplicaRepository.findById(USER_ID)).thenReturn(Optional.empty());
+        when(payrollRepository.save(any())).thenReturn(new Payroll());
+
+        payrollService.processHarvestPayroll(event);
+
+        ArgumentCaptor<Payroll> captor = ArgumentCaptor.forClass(Payroll.class);
+        verify(payrollRepository).save(captor.capture());
+        assertEquals(31500.0, captor.getValue().getBaseAmount());
+        assertEquals(100.0, captor.getValue().getKilograms());
     }
 }

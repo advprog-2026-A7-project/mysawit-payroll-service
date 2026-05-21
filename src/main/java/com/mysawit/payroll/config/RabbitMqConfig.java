@@ -5,8 +5,10 @@ import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.rabbit.annotation.EnableRabbit;
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
+import org.aopalliance.aop.Advice;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -42,7 +44,19 @@ public class RabbitMqConfig {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         factory.setConnectionFactory(connectionFactory);
         factory.setMessageConverter(jsonMessageConverter);
+        factory.setAdviceChain(payrollRetryInterceptor());
         factory.setDefaultRequeueRejected(false);
         return factory;
+    }
+
+    @Bean
+    public Advice payrollRetryInterceptor() {
+        return RetryInterceptorBuilder.stateless()
+                .maxAttempts(3)
+                .backOffOptions(1000, 2.0, 5000)
+                .recoverer((message, cause) -> {
+                    throw new IllegalStateException("Payroll event failed after retries: " + message, cause);
+                })
+                .build();
     }
 }

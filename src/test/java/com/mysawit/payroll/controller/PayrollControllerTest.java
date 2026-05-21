@@ -1,5 +1,6 @@
 package com.mysawit.payroll.controller;
 
+import com.mysawit.payroll.event.HarvestEvent;
 import com.mysawit.payroll.model.Payroll;
 import com.mysawit.payroll.service.PayrollService;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,8 +43,8 @@ class PayrollControllerTest {
 
     @Test
     void getAllPayrollsReturns200() {
-        when(payrollService.getAllPayrolls()).thenReturn(List.of(pendingPayroll));
-        ResponseEntity<List<Payroll>> response = payrollController.getAllPayrolls();
+        when(payrollService.searchPayrolls(null, null, null, null)).thenReturn(List.of(pendingPayroll));
+        ResponseEntity<List<Payroll>> response = payrollController.getAllPayrolls(null, null, null, null);
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(1, response.getBody().size());
     }
@@ -93,6 +94,20 @@ class PayrollControllerTest {
         assertEquals(HttpStatus.CREATED, response.getStatusCode());
     }
 
+    @Test
+    void processDemoHarvestEventReturns200AndDelegatesToService() {
+        HarvestEvent event = new HarvestEvent();
+        event.setEventId("harvest-demo-001");
+        event.setEmployeeId(PayrollTestFixtures.SAMPLE_USER_ID);
+        event.setAmount(1250000.0);
+
+        ResponseEntity<Map<String, String>> response = payrollController.processDemoHarvestEvent(event);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("harvest-demo-001", response.getBody().get("eventId"));
+        verify(payrollService).processHarvestPayroll(event);
+    }
+
     // ── PUT update ────────────────────────────────────────────────────────────
 
     @Test
@@ -116,15 +131,15 @@ class PayrollControllerTest {
     void approvePayrollReturns200OnSuccess() {
         Payroll approved = new Payroll();
         approved.setStatus("APPROVED");
-        when(payrollService.approvePayroll(1L)).thenReturn(approved);
-        ResponseEntity<Payroll> response = payrollController.approvePayroll(1L);
+        when(payrollService.approvePayroll(1L, "admin-demo")).thenReturn(approved);
+        ResponseEntity<?> response = payrollController.approvePayroll(1L, Map.of("adminId", "admin-demo"));
         assertEquals(HttpStatus.OK, response.getStatusCode());
     }
 
     @Test
     void approvePayrollReturns404WhenNotFound() {
-        when(payrollService.approvePayroll(99L)).thenThrow(new RuntimeException("not found"));
-        ResponseEntity<Payroll> response = payrollController.approvePayroll(99L);
+        when(payrollService.approvePayroll(99L, null)).thenThrow(new RuntimeException("not found"));
+        ResponseEntity<?> response = payrollController.approvePayroll(99L, null);
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
     }
 
@@ -201,7 +216,7 @@ class PayrollControllerTest {
         Payroll paid = new Payroll();
         paid.setStatus("PAID");
         when(payrollService.markAsPaid(eq(1L), any())).thenReturn(paid);
-        ResponseEntity<Payroll> response = payrollController.markAsPaid(1L, Map.of("paymentMethod", "CASH"));
+        ResponseEntity<?> response = payrollController.markAsPaid(1L, Map.of("paymentMethod", "CASH"));
         assertEquals(HttpStatus.OK, response.getStatusCode());
     }
 
@@ -209,15 +224,15 @@ class PayrollControllerTest {
     void markAsPaidUsesDefaultPaymentMethod() {
         Payroll paid = new Payroll();
         paid.setStatus("PAID");
-        when(payrollService.markAsPaid(eq(1L), eq("BANK_TRANSFER"))).thenReturn(paid);
-        ResponseEntity<Payroll> response = payrollController.markAsPaid(1L, Map.of());
+        when(payrollService.markAsPaid(eq(1L), eq("SANDBOX"))).thenReturn(paid);
+        ResponseEntity<?> response = payrollController.markAsPaid(1L, Map.of());
         assertEquals(HttpStatus.OK, response.getStatusCode());
     }
 
     @Test
     void markAsPaidReturns404WhenNotFound() {
         when(payrollService.markAsPaid(eq(99L), any())).thenThrow(new RuntimeException("not found"));
-        ResponseEntity<Payroll> response = payrollController.markAsPaid(99L, Map.of("paymentMethod", "CASH"));
+        ResponseEntity<?> response = payrollController.markAsPaid(99L, Map.of("paymentMethod", "CASH"));
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
     }
 
