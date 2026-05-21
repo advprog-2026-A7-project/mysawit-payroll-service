@@ -1,0 +1,155 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches:
+      - staging
+      - main
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: Deployment target
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: cd-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.target_environment }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_environment: ${{ steps.resolve.outputs.deploy_environment }}
+      deploy_ref: ${{ steps.resolve.outputs.deploy_ref }}
+      deploy_sha: ${{ steps.resolve.outputs.deploy_sha }}
+    steps:
+      - name: Validate CI result
+        if: ${{ github.event_name == 'workflow_run' }}
+        run: |
+          echo "CI workflow conclusion: ${{ github.event.workflow_run.conclusion }}"
+          if [ "${{ github.event.workflow_run.conclusion }}" != "success" ]; then
+            echo "Quality checks failed. Blocking CD."
+            exit 1
+          fi
+
+      - name: Resolve deployment target
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            BRANCH="${{ github.event.workflow_run.head_branch }}"
+            SHA="${{ github.event.workflow_run.head_sha }}"
+            if [ "$BRANCH" = "main" ]; then
+              ENVIRONMENT="production"
+            elif [ "$BRANCH" = "staging" ]; then
+              ENVIRONMENT="staging"
+            else
+              echo "Unsupported branch for CD: $BRANCH"
+              exit 1
+            fi
+          else
+            ENVIRONMENT="${{ inputs.target_environment }}"
+            BRANCH="$([ "$ENVIRONMENT" = "production" ] && echo main || echo staging)"
+            SHA="$BRANCH"
+          fi
+
+          echo "deploy_environment=$ENVIRONMENT" >> "$GITHUB_OUTPUT"
+          echo "deploy_ref=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "deploy_sha=$SHA" >> "$GITHUB_OUTPUT"
+
+  publish-image:
+    runs-on: ubuntu-latest
+    needs: quality-gate
+    environment: ${{ needs.quality-gate.outputs.deploy_environment }}
+    outputs:
+      image_ref: ${{ steps.image.outputs.image_ref }}
+    steps:
+      - name: Checkout deployment ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.quality-gate.outputs.deploy_sha }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=${{ needs.quality-gate.outputs.deploy_environment }}-
+            type=raw,value=${{ needs.quality-gate.outputs.deploy_environment }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Export image ref
+        id: image
+        run: echo "image_ref=${{ env.IMAGE_NAME }}:${{ needs.quality-gate.outputs.deploy_environment }}" >> "$GITHUB_OUTPUT"
+
+  deploy-ssh:
+    runs-on: ubuntu-latest
+    needs:
+      - quality-gate
+      - publish-image
+    environment: ${{ needs.quality-gate.outputs.deploy_environment }}
+    env:
+      HAS_SSH_DEPLOY: ${{ secrets.DEPLOY_HOST != '' && secrets.DEPLOY_USER != '' && secrets.DEPLOY_SSH_KEY != '' }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+    steps:
+      - name: Skip SSH deployment when secrets are not configured
+        if: env.HAS_SSH_DEPLOY != 'true'
+        run: |
+          echo "Docker image published: ${{ needs.publish-image.outputs.image_ref }}"
+          echo "SSH deployment skipped because DEPLOY_HOST, DEPLOY_USER, or DEPLOY_SSH_KEY is not configured."
+
+      - name: Deploy over SSH
+        if: env.HAS_SSH_DEPLOY == 'true'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ env.DEPLOY_PORT }}
+          script: |
+            set -euo pipefail
+            IMAGE="${{ needs.publish-image.outputs.image_ref }}"
+            CONTAINER_NAME="mysawit-payroll-service"
+            docker pull "$IMAGE"
+            docker stop "$CONTAINER_NAME" || true
+            docker rm "$CONTAINER_NAME" || true
+            docker run -d \
+              --name "$CONTAINER_NAME" \
+              --restart unless-stopped \
+              --env-file "${{ secrets.DEPLOY_ENV_FILE || '/opt/mysawit/payroll.env' }}" \
+              -p 8085:8085 \
+              "$IMAGE"
+            docker image prune -f

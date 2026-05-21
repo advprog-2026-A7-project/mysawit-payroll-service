@@ -1,0 +1,10 @@
+.git
+.github/java-upgrade
+.gradle
+build
+*.log
+*.out.log
+*.err.log
+.env
+.env.*
+!gradle/wrapper/gradle-wrapper.jar
