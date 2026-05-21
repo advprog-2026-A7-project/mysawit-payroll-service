@@ -57,7 +57,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
+        with: 
           fetch-depth: 0
 
       - name: Set up Java 21
@@ -155,7 +155,7 @@ jobs:
             -Dsonar.coverage.jacoco.xmlReportPaths=build/reports/jacoco/test/jacocoTestReport.xml
 
       - name: Fail if SonarCloud Quality Gate fails
-        if: github.event_name == 'push' && github.ref_name == 'main' && env.SONAR_TOKEN != '' && env.SONAR_PROJECT_KEY != '' && env.SONAR_ORGANIZATION != ''
+        if: github.event_name == 'push' && github.ref_name == 'main'
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
         run: |
@@ -165,6 +165,7 @@ jobs:
           import json
           import os
           import time
+          import urllib.error
           import urllib.request
 
           token = os.environ["SONAR_TOKEN"]
@@ -184,8 +185,12 @@ jobs:
               req = urllib.request.Request(url)
               auth = base64.b64encode((token + ":").encode()).decode()
               req.add_header("Authorization", "Basic " + auth)
-              with urllib.request.urlopen(req) as resp:
-                  return json.loads(resp.read().decode())
+              try:
+                  with urllib.request.urlopen(req) as resp:
+                      return json.loads(resp.read().decode())
+              except urllib.error.HTTPError as err:
+                  body = err.read().decode("utf-8", "ignore")
+                  raise SystemExit(f"HTTP error {err.code} from {url}: {body}")
 
           analysis_id = None
           for _ in range(60):
