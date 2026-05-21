@@ -12,10 +12,22 @@ public class Payroll {
     private Long id;
 
     @Column(name = "event_id", unique = true)
-    private String eventId; // Untuk idempotency event
+    private String eventId;
 
     @Column(name = "employee_id", nullable = false)
-    private Long employeeId;
+    private String userId;
+
+    @Column(name = "role_type")
+    private String roleType;
+
+    @Column(name = "source_type")
+    private String sourceType;
+
+    @Column(name = "source_reference")
+    private String sourceReference;
+
+    @Column(name = "kilograms")
+    private Double kilograms;
 
     @Column(name = "period_start", nullable = false)
     private LocalDateTime periodStart;
@@ -36,13 +48,31 @@ public class Payroll {
     private Double totalAmount;
 
     @Column(nullable = false)
-    private String status; // PENDING, APPROVED, PAID, CANCELLED
+    private String status;
+
+    @Column(name = "approved_by")
+    private String approvedBy;
+
+    @Column(name = "approved_at")
+    private LocalDateTime approvedAt;
+
+    @Column(name = "rejected_at")
+    private LocalDateTime rejectedAt;
+
+    @Column(name = "rejection_reason", length = 1000)
+    private String rejectionReason;
+
+    @Column(name = "wallet_settled", nullable = false)
+    private Boolean walletSettled = false;
+
+    @Column(name = "wallet_transfer_amount")
+    private Double walletTransferAmount;
 
     @Column(name = "payment_date")
     private LocalDateTime paymentDate;
 
     @Column(name = "payment_method")
-    private String paymentMethod; // CASH, BANK_TRANSFER, CHEQUE
+    private String paymentMethod;
 
     @Column(length = 1000)
     private String notes;
@@ -67,14 +97,17 @@ public class Payroll {
     }
 
     private void calculateTotal() {
-        this.totalAmount = this.baseAmount + this.bonusAmount - this.deductionAmount;
+        double base = this.baseAmount != null ? this.baseAmount : 0.0;
+        double bonus = this.bonusAmount != null ? this.bonusAmount : 0.0;
+        double deduction = this.deductionAmount != null ? this.deductionAmount : 0.0;
+        this.totalAmount = base + bonus - deduction;
     }
 
     // Constructors
     public Payroll() {}
 
-    public Payroll(Long employeeId, LocalDateTime periodStart, LocalDateTime periodEnd, Double baseAmount, String status) {
-        this.employeeId = employeeId;
+    public Payroll(String userId, LocalDateTime periodStart, LocalDateTime periodEnd, Double baseAmount, String status) {
+        this.userId = userId;
         this.periodStart = periodStart;
         this.periodEnd = periodEnd;
         this.baseAmount = baseAmount;
@@ -101,12 +134,44 @@ public class Payroll {
         this.id = id;
     }
 
-    public Long getEmployeeId() {
-        return employeeId;
+    public String getUserId() {
+        return userId;
     }
 
-    public void setEmployeeId(Long employeeId) {
-        this.employeeId = employeeId;
+    public void setUserId(String userId) {
+        this.userId = userId;
+    }
+
+    public String getRoleType() {
+        return roleType;
+    }
+
+    public void setRoleType(String roleType) {
+        this.roleType = roleType;
+    }
+
+    public String getSourceType() {
+        return sourceType;
+    }
+
+    public void setSourceType(String sourceType) {
+        this.sourceType = sourceType;
+    }
+
+    public String getSourceReference() {
+        return sourceReference;
+    }
+
+    public void setSourceReference(String sourceReference) {
+        this.sourceReference = sourceReference;
+    }
+
+    public Double getKilograms() {
+        return kilograms;
+    }
+
+    public void setKilograms(Double kilograms) {
+        this.kilograms = kilograms;
     }
 
     public LocalDateTime getPeriodStart() {
@@ -163,6 +228,54 @@ public class Payroll {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getApprovedBy() {
+        return approvedBy;
+    }
+
+    public void setApprovedBy(String approvedBy) {
+        this.approvedBy = approvedBy;
+    }
+
+    public LocalDateTime getApprovedAt() {
+        return approvedAt;
+    }
+
+    public void setApprovedAt(LocalDateTime approvedAt) {
+        this.approvedAt = approvedAt;
+    }
+
+    public LocalDateTime getRejectedAt() {
+        return rejectedAt;
+    }
+
+    public void setRejectedAt(LocalDateTime rejectedAt) {
+        this.rejectedAt = rejectedAt;
+    }
+
+    public String getRejectionReason() {
+        return rejectionReason;
+    }
+
+    public void setRejectionReason(String rejectionReason) {
+        this.rejectionReason = rejectionReason;
+    }
+
+    public Boolean getWalletSettled() {
+        return walletSettled;
+    }
+
+    public void setWalletSettled(Boolean walletSettled) {
+        this.walletSettled = walletSettled;
+    }
+
+    public Double getWalletTransferAmount() {
+        return walletTransferAmount;
+    }
+
+    public void setWalletTransferAmount(Double walletTransferAmount) {
+        this.walletTransferAmount = walletTransferAmount;
     }
 
     public LocalDateTime getPaymentDate() {

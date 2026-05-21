@@ -1,0 +1,238 @@
+openapi: 3.0.3
+info:
+  title: MySawit Payroll Service API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8085
+paths:
+  /actuator/health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: Service health
+  /api/payrolls:
+    get:
+      summary: List payrolls with optional user, status, and date filters
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, ACCEPTED, APPROVED, REJECTED, PAID]
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Payroll list
+    post:
+      summary: Create manual payroll
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Payroll"
+      responses:
+        "201":
+          description: Payroll created
+  /api/payrolls/{id}:
+    get:
+      summary: Get payroll by id
+      parameters:
+        - $ref: "#/components/parameters/PayrollId"
+      responses:
+        "200":
+          description: Payroll found
+        "404":
+          description: Payroll not found
+    put:
+      summary: Update payroll
+      parameters:
+        - $ref: "#/components/parameters/PayrollId"
+      responses:
+        "200":
+          description: Payroll updated
+        "404":
+          description: Payroll not found
+    delete:
+      summary: Delete payroll
+      parameters:
+        - $ref: "#/components/parameters/PayrollId"
+      responses:
+        "204":
+          description: Payroll deleted
+        "404":
+          description: Payroll not found
+  /api/payrolls/{id}/accept:
+    patch:
+      summary: Move payroll from PENDING to ACCEPTED
+      parameters:
+        - $ref: "#/components/parameters/PayrollId"
+      responses:
+        "200":
+          description: Payroll accepted
+        "400":
+          description: Invalid status transition
+  /api/payrolls/{id}/approve:
+    patch:
+      summary: Approve payroll and transfer SawitDollar from admin wallet
+      parameters:
+        - $ref: "#/components/parameters/PayrollId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                adminId:
+                  type: string
+      responses:
+        "200":
+          description: Payroll approved
+        "400":
+          description: Invalid status transition or insufficient wallet balance
+  /api/payrolls/{id}/reject:
+    patch:
+      summary: Reject payroll with mandatory reason
+      parameters:
+        - $ref: "#/components/parameters/PayrollId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+      responses:
+        "200":
+          description: Payroll rejected
+        "400":
+          description: Missing reason or invalid status transition
+  /api/payrolls/{id}/pay:
+    patch:
+      summary: Mark approved payroll as paid
+      parameters:
+        - $ref: "#/components/parameters/PayrollId"
+      responses:
+        "200":
+          description: Payroll paid
+        "400":
+          description: Payroll is not approved
+  /api/admin/wage-configs:
+    get:
+      summary: List wage configs
+      responses:
+        "200":
+          description: Wage config list
+    post:
+      summary: Create wage config
+      responses:
+        "201":
+          description: Wage config created
+  /api/admin/wage-configs/role/{role}/active:
+    get:
+      summary: Get active wage config for role
+      parameters:
+        - name: role
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [BURUH, SUPIR, MANDOR]
+      responses:
+        "200":
+          description: Active wage config
+        "404":
+          description: No active config
+  /api/wallets/{userId}:
+    get:
+      summary: Get or create wallet
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: Wallet
+  /api/wallets/{userId}/top-up/sandbox:
+    post:
+      summary: Sandbox wallet top-up
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amountSawitDollar]
+              properties:
+                amountSawitDollar:
+                  type: string
+                gateway:
+                  type: string
+      responses:
+        "200":
+          description: Paid sandbox payment transaction
+        "400":
+          description: Invalid amount
+components:
+  parameters:
+    PayrollId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    Payroll:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        eventId:
+          type: string
+        userId:
+          type: string
+        roleType:
+          type: string
+          enum: [BURUH, SUPIR, MANDOR]
+        sourceType:
+          type: string
+        kilograms:
+          type: number
+        baseAmount:
+          type: number
+        bonusAmount:
+          type: number
+        deductionAmount:
+          type: number
+        totalAmount:
+          type: number
+        status:
+          type: string
+          enum: [PENDING, ACCEPTED, APPROVED, REJECTED, PAID]
+        notes:
+          type: string

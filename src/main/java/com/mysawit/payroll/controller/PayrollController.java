@@ -1,12 +1,15 @@
 package com.mysawit.payroll.controller;
 
+import com.mysawit.payroll.event.HarvestEvent;
 import com.mysawit.payroll.model.Payroll;
 import com.mysawit.payroll.service.PayrollService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -19,8 +22,12 @@ public class PayrollController {
     private PayrollService payrollService;
 
     @GetMapping
-    public ResponseEntity<List<Payroll>> getAllPayrolls() {
-        return ResponseEntity.ok(payrollService.getAllPayrolls());
+    public ResponseEntity<List<Payroll>> getAllPayrolls(
+            @RequestParam(required = false) String userId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
+        return ResponseEntity.ok(payrollService.searchPayrolls(userId, status, from, to));
     }
 
     @GetMapping("/{id}")
@@ -30,9 +37,9 @@ public class PayrollController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    @GetMapping("/employee/{employeeId}")
-    public ResponseEntity<List<Payroll>> getPayrollsByEmployee(@PathVariable Long employeeId) {
-        return ResponseEntity.ok(payrollService.getPayrollsByEmployee(employeeId));
+    @GetMapping("/user/{userId}")
+    public ResponseEntity<List<Payroll>> getPayrollsByUser(@PathVariable String userId) {
+        return ResponseEntity.ok(payrollService.getPayrollsByUser(userId));
     }
 
     @GetMapping("/status/{status}")
@@ -46,6 +53,19 @@ public class PayrollController {
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
+    @PostMapping("/demo/harvest-event")
+    public ResponseEntity<Map<String, String>> processDemoHarvestEvent(@RequestBody HarvestEvent event) {
+        try {
+            payrollService.processHarvestPayroll(event);
+            return ResponseEntity.ok(Map.of(
+                    "message", "Harvest event processed",
+                    "eventId", event.getEventId()
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+        }
+    }
+
     @PutMapping("/{id}")
     public ResponseEntity<Payroll> updatePayroll(@PathVariable Long id, @RequestBody Payroll payroll) {
         try {
@@ -57,10 +77,15 @@ public class PayrollController {
     }
 
     @PatchMapping("/{id}/approve")
-    public ResponseEntity<Payroll> approvePayroll(@PathVariable Long id) {
+    public ResponseEntity<?> approvePayroll(
+            @PathVariable Long id,
+            @RequestBody(required = false) Map<String, String> request) {
         try {
-            Payroll approved = payrollService.approvePayroll(id);
+            String adminId = request != null ? request.get("adminId") : null;
+            Payroll approved = payrollService.approvePayroll(id, adminId);
             return ResponseEntity.ok(approved);
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }
@@ -71,7 +96,7 @@ public class PayrollController {
         try {
             Payroll accepted = payrollService.acceptPayroll(id);
             return ResponseEntity.ok(accepted);
-        } catch (IllegalStateException e) {
+        } catch (IllegalStateException | IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -92,11 +117,13 @@ public class PayrollController {
     }
 
     @PatchMapping("/{id}/pay")
-    public ResponseEntity<Payroll> markAsPaid(@PathVariable Long id, @RequestBody Map<String, String> request) {
+    public ResponseEntity<?> markAsPaid(@PathVariable Long id, @RequestBody(required = false) Map<String, String> request) {
         try {
-            String paymentMethod = request.getOrDefault("paymentMethod", "BANK_TRANSFER");
+            String paymentMethod = request != null ? request.getOrDefault("paymentMethod", "SANDBOX") : "SANDBOX";
             Payroll paid = payrollService.markAsPaid(id, paymentMethod);
             return ResponseEntity.ok(paid);
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }
