@@ -9,10 +9,16 @@ import java.util.List;
 
 @Repository
 public interface PayrollRepository extends JpaRepository<Payroll, Long> {
-    List<Payroll> findByEmployeeId(Long employeeId);
+    List<Payroll> findByUserId(String userId);
     List<Payroll> findByStatus(String status);
     List<Payroll> findByPeriodStartBetween(LocalDateTime start, LocalDateTime end);
-    List<Payroll> findByEmployeeIdAndStatus(Long employeeId, String status);
+    List<Payroll> findByUserIdAndStatus(String userId, String status);
+    List<Payroll> findByUserIdAndPeriodStartBetween(String userId, LocalDateTime start, LocalDateTime end);
+    List<Payroll> findByUserIdAndStatusAndPeriodStartBetween(
+            String userId,
+            String status,
+            LocalDateTime start,
+            LocalDateTime end);
 
     Payroll findByEventId(String eventId);
 }
