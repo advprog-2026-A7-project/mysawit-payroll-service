@@ -89,8 +89,8 @@ Expected:
 Di `cmd.exe`, set environment variable database:
 
 ```bat
-set "DB_URL=jdbc:postgresql://db.luymlqdyfvvrmnepsgsj.supabase.co:5432/postgres?sslmode=require"
-set "DB_USERNAME=postgres"
+set "DB_URL=jdbc:postgresql://aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require&prepareThreshold=0"
+set "DB_USERNAME=postgres.luymlqdyfvvrmnepsgsj"
 set "DB_PASSWORD=<ISI_PASSWORD_DB>"
 
 gradlew.bat bootRun
@@ -99,8 +99,8 @@ gradlew.bat bootRun
 Jika menggunakan PowerShell:
 
 ```powershell
-$env:DB_URL="jdbc:postgresql://db.luymlqdyfvvrmnepsgsj.supabase.co:5432/postgres?sslmode=require"
-$env:DB_USERNAME="postgres"
+$env:DB_URL="jdbc:postgresql://aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require&prepareThreshold=0"
+$env:DB_USERNAME="postgres.luymlqdyfvvrmnepsgsj"
 $env:DB_PASSWORD="<ISI_PASSWORD_DB>"
 
 .\gradlew.bat bootRun

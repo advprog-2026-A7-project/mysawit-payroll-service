@@ -87,7 +87,9 @@ class RabbitMqConfigTest {
         assertNotNull(config.rabbitListenerContainerFactory(
                 mock(ConnectionFactory.class),
                 converter,
-                config.payrollRetryInterceptor(3, 1000, 2.0, 5000)));
+                config.payrollRetryInterceptor(3, 1000, 2.0, 5000),
+                true,
+                true));
     }
 
     @Test

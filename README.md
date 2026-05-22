@@ -21,18 +21,18 @@ Spring Boot payroll microservice for MySawit.
 Set database environment variables first:
 
 ```powershell
-$env:DB_URL="jdbc:postgresql://db.luymlqdyfvvrmnepsgsj.supabase.co:5432/postgres?sslmode=require"
-$env:DB_USERNAME="postgres"
+$env:DB_URL="jdbc:postgresql://aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require&prepareThreshold=0"
+$env:DB_USERNAME="postgres.luymlqdyfvvrmnepsgsj"
 $env:DB_PASSWORD="<your-db-password>"
 
 .\gradlew.bat bootRun
 ```
 
-For macOS/Linux, copy `.env.example` values into your shell before running:
+For macOS/Linux, copy `.env.example` to `.env`, fill `DB_PASSWORD`, then run `bootRun`. You can also export the values manually:
 
 ```bash
-export DB_URL='jdbc:postgresql://<host>:5432/postgres?sslmode=require'
-export DB_USERNAME='postgres'
+export DB_URL='jdbc:postgresql://aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require&prepareThreshold=0'
+export DB_USERNAME='postgres.luymlqdyfvvrmnepsgsj'
 export DB_PASSWORD='<your-db-password>'
 export MIDTRANS_SERVER_KEY='SB-Mid-server-<your-sandbox-server-key>'
 
@@ -42,6 +42,8 @@ export MIDTRANS_SERVER_KEY='SB-Mid-server-<your-sandbox-server-key>'
 Optional RabbitMQ environment variables:
 
 ```powershell
+$env:RABBITMQ_DYNAMIC="false"
+$env:RABBITMQ_MISSING_QUEUES_FATAL="false"
 $env:RABBITMQ_HOST="localhost"
 $env:RABBITMQ_PORT="5672"
 $env:RABBITMQ_USERNAME="guest"

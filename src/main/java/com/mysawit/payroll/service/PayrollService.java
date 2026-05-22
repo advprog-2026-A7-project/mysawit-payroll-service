@@ -194,7 +194,7 @@ public class PayrollService {
                 "HARVEST",
                 sourceReference(event),
                 "HarvestEvent",
-                eventTimeOrNow(event.getTimestamp()));
+                eventTimeOrNow(event));
     }
 
     public void processShipmentPayroll(ShipmentEvent event) {
@@ -209,7 +209,7 @@ public class PayrollService {
                     "SHIPMENT",
                     sourceReference(event),
                     "ShipmentEvent",
-                    eventTimeOrNow(event.getTimestamp()));
+                    eventTimeOrNow(event));
         }
 
         if (hasText(event.getMandorId())) {
@@ -223,7 +223,7 @@ public class PayrollService {
                     "SHIPMENT",
                     sourceReference(event),
                     "ShipmentEvent",
-                    eventTimeOrNow(event.getTimestamp()));
+                    eventTimeOrNow(event));
         }
 
         if (!hasText(event.getDriverId()) && !hasText(event.getMandorId())) {
@@ -239,7 +239,7 @@ public class PayrollService {
                     "SHIPMENT",
                     sourceReference(event),
                     "ShipmentEvent",
-                    eventTimeOrNow(event.getTimestamp()));
+                    eventTimeOrNow(event));
         }
     }
 
@@ -377,6 +377,13 @@ public class PayrollService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private LocalDateTime eventTimeOrNow(com.mysawit.payroll.event.PayrollEvent event) {
+        if (event.getOccurredAt() != null) {
+            return LocalDateTime.ofInstant(event.getOccurredAt().toInstant(), ZoneId.systemDefault());
+        }
+        return eventTimeOrNow(event.getTimestamp());
     }
 
     private LocalDateTime eventTimeOrNow(long timestamp) {

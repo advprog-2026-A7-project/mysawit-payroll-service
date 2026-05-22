@@ -105,12 +105,16 @@ public class RabbitMqConfig {
     public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(
             ConnectionFactory connectionFactory,
             MessageConverter jsonMessageConverter,
-            Advice payrollRetryInterceptor) {
+            Advice payrollRetryInterceptor,
+            @Value("${spring.rabbitmq.listener.simple.auto-startup:true}") boolean autoStartup,
+            @Value("${spring.rabbitmq.listener.simple.missing-queues-fatal:true}") boolean missingQueuesFatal) {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         factory.setConnectionFactory(connectionFactory);
         factory.setMessageConverter(jsonMessageConverter);
         factory.setAdviceChain(payrollRetryInterceptor);
         factory.setDefaultRequeueRejected(false);
+        factory.setAutoStartup(autoStartup);
+        factory.setMissingQueuesFatal(missingQueuesFatal);
         return factory;
     }
 

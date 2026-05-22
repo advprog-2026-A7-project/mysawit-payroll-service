@@ -62,7 +62,7 @@ public class Payroll {
     @Column(name = "rejection_reason", length = 1000)
     private String rejectionReason;
 
-    @Column(name = "wallet_settled", nullable = false)
+    @Column(name = "wallet_settled", nullable = false, columnDefinition = "boolean default false")
     private Boolean walletSettled = false;
 
     @Column(name = "wallet_transfer_amount")

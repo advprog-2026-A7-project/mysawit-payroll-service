@@ -1,18 +1,35 @@
 package com.mysawit.payroll.event;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+import java.time.OffsetDateTime;
+
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class PayrollEvent {
     private String eventId;
+
+    @JsonAlias({"harvesterId"})
     private String employeeId;
+
+    @JsonAlias({"employeeRole"})
     private String roleType;
     private double amount;
+
+    @JsonAlias({"weight", "kg"})
     private Double kilograms;
     private Double totalKg;
     private Double recognizedKg;
     private String driverId;
     private String mandorId;
+
+    @JsonAlias({"harvestId", "shipmentId"})
     private String sourceReference;
     private String description;
     private long timestamp;
+
+    @JsonAlias({"occurredAt"})
+    private OffsetDateTime occurredAt;
 
     public String getEventId() { return eventId; }
     public void setEventId(String eventId) { this.eventId = eventId; }
@@ -38,4 +55,6 @@ public class PayrollEvent {
     public void setDescription(String description) { this.description = description; }
     public long getTimestamp() { return timestamp; }
     public void setTimestamp(long timestamp) { this.timestamp = timestamp; }
+    public OffsetDateTime getOccurredAt() { return occurredAt; }
+    public void setOccurredAt(OffsetDateTime occurredAt) { this.occurredAt = occurredAt; }
 }
