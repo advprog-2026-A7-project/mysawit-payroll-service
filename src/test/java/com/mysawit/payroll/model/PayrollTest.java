@@ -21,7 +21,6 @@ class PayrollTest {
         assertEquals(0.0, payroll.getDeductionAmount());
 
         payroll.setId(1L);
-        payroll.setEventId("event-1");
         payroll.setUserId("11111111-1111-1111-1111-111111111111");
         payroll.setRoleType("BURUH");
         payroll.setSourceType("HARVEST");
@@ -47,7 +46,6 @@ class PayrollTest {
         payroll.setUpdatedAt(updatedAt);
 
         assertEquals(1L, payroll.getId());
-        assertEquals("event-1", payroll.getEventId());
         assertEquals("11111111-1111-1111-1111-111111111111", payroll.getUserId());
         assertEquals("BURUH", payroll.getRoleType());
         assertEquals("HARVEST", payroll.getSourceType());

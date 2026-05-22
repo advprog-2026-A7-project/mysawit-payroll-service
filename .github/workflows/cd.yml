@@ -1,0 +1,195 @@
+name: CD - Deploy Payroll to AWS
+
+on:
+  push:
+    branches: [staging, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: payroll-cd-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build-push:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    outputs:
+      image-ref: ${{ steps.meta.outputs.image-ref }}
+    steps:
+      - name: Validate Docker Hub secrets
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${DOCKERHUB_USERNAME:-}" || (echo "::error::Missing DOCKERHUB_USERNAME" && exit 1)
+          test -n "${DOCKERHUB_TOKEN:-}" || (echo "::error::Missing DOCKERHUB_TOKEN" && exit 1)
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Compute image metadata
+        id: meta
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          set -euo pipefail
+          IMAGE_REF="${DOCKERHUB_USERNAME}/mysawit-payroll-service:${GITHUB_SHA::12}"
+          echo "image-ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image-ref }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/mysawit-payroll-service:latest
+          labels: |
+            com.mysawit.service=mysawit-payroll-service
+            com.mysawit.release=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy Payroll to EC2
+    needs: build-push
+    runs-on: ubuntu-latest
+    env:
+      AWS_HOST: ${{ secrets.AWS_HOST }}
+      AWS_USER: ${{ secrets.AWS_USER }}
+      AWS_SSH_KEY: ${{ secrets.AWS_SSH_KEY }}
+      AWS_SSH_PORT: ${{ vars.AWS_SSH_PORT || '22' }}
+      PAYROLL_SERVICE_PORT: ${{ vars.PAYROLL_SERVICE_PORT || '8085' }}
+      IMAGE_REF: ${{ needs.build-push.outputs.image-ref }}
+      DEPLOY_DIR: ${{ vars.PAYROLL_DEPLOY_DIR || '/opt/mysawit-payroll-service' }}
+    steps:
+      - name: Validate deployment secrets
+        env:
+          DB_URL: ${{ secrets.DB_URL }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          RABBITMQ_HOST: ${{ secrets.RABBITMQ_HOST }}
+          RABBITMQ_USERNAME: ${{ secrets.RABBITMQ_USERNAME }}
+          RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for key in AWS_HOST AWS_USER AWS_SSH_KEY DB_URL DB_USERNAME DB_PASSWORD RABBITMQ_HOST RABBITMQ_USERNAME RABBITMQ_PASSWORD; do
+            if [ -z "${!key:-}" ]; then
+              missing+=("$key")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing required deployment secrets: ${missing[*]}"
+            exit 1
+          fi
+          if [[ "${DB_URL}" != jdbc:postgresql://* ]]; then
+            echo "::error::DB_URL must be a PostgreSQL JDBC URL"
+            exit 1
+          fi
+
+      - name: Prepare SSH key
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s' "$AWS_SSH_KEY" | tr -d '\r' > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keygen -y -f ~/.ssh/id_rsa >/dev/null
+          ssh-keyscan -T 30 -p "$AWS_SSH_PORT" -H "$AWS_HOST" >> ~/.ssh/known_hosts || true
+
+      - name: Upload deployment env file
+        env:
+          DB_URL: ${{ secrets.DB_URL }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          RABBITMQ_HOST: ${{ secrets.RABBITMQ_HOST }}
+          RABBITMQ_PORT: ${{ vars.RABBITMQ_PORT || '5672' }}
+          RABBITMQ_USERNAME: ${{ secrets.RABBITMQ_USERNAME }}
+          RABBITMQ_PASSWORD: ${{ secrets.RABBITMQ_PASSWORD }}
+          RABBITMQ_HEALTH_ENABLED: ${{ vars.RABBITMQ_HEALTH_ENABLED || 'false' }}
+          CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
+        run: |
+          set -euo pipefail
+          sanitize_single_line() {
+            local key="$1"
+            local value="$2"
+            if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+              echo "::error::${key} must be single-line"
+              exit 1
+            fi
+          }
+          for key in DB_URL DB_USERNAME DB_PASSWORD RABBITMQ_HOST RABBITMQ_PORT RABBITMQ_USERNAME RABBITMQ_PASSWORD RABBITMQ_HEALTH_ENABLED CORS_ORIGINS; do
+            sanitize_single_line "$key" "${!key:-}"
+          done
+
+          {
+            printf 'DB_URL=%s\n' "$DB_URL"
+            printf 'DB_USERNAME=%s\n' "$DB_USERNAME"
+            printf 'DB_PASSWORD=%s\n' "$DB_PASSWORD"
+            printf 'RABBITMQ_HOST=%s\n' "$RABBITMQ_HOST"
+            printf 'RABBITMQ_PORT=%s\n' "$RABBITMQ_PORT"
+            printf 'RABBITMQ_USERNAME=%s\n' "$RABBITMQ_USERNAME"
+            printf 'RABBITMQ_PASSWORD=%s\n' "$RABBITMQ_PASSWORD"
+            printf 'RABBITMQ_HEALTH_ENABLED=%s\n' "$RABBITMQ_HEALTH_ENABLED"
+            printf 'CORS_ORIGINS=%s\n' "${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}"
+          } > payroll.env
+          chmod 600 payroll.env
+
+          SSH_OPTS="-i ~/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p $AWS_SSH_PORT"
+          ssh $SSH_OPTS "$AWS_USER@$AWS_HOST" "sudo mkdir -p '$DEPLOY_DIR' && sudo chown '$AWS_USER':'$AWS_USER' '$DEPLOY_DIR'"
+          scp -i ~/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -P "$AWS_SSH_PORT" payroll.env "$AWS_USER@$AWS_HOST:$DEPLOY_DIR/payroll.env"
+
+      - name: Restart payroll container on EC2
+        run: |
+          set -euo pipefail
+          SSH_OPTS="-i ~/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p $AWS_SSH_PORT"
+          ssh $SSH_OPTS "$AWS_USER@$AWS_HOST" "
+            set -euo pipefail
+            if docker info >/dev/null 2>&1; then DOCKER=docker; else DOCKER='sudo docker'; fi
+            \$DOCKER pull '$IMAGE_REF'
+            \$DOCKER rm -f mysawit-payroll-service >/dev/null 2>&1 || true
+            \$DOCKER run -d \
+              --name mysawit-payroll-service \
+              --env-file '$DEPLOY_DIR/payroll.env' \
+              --restart unless-stopped \
+              -p '$PAYROLL_SERVICE_PORT:8085' \
+              --log-opt max-size=10m \
+              --log-opt max-file=5 \
+              '$IMAGE_REF'
+          "
+
+      - name: Verify public health endpoint
+        run: |
+          set -euo pipefail
+          HEALTH_URL="http://${AWS_HOST}:${PAYROLL_SERVICE_PORT}/actuator/health"
+          for attempt in $(seq 1 18); do
+            if curl -fsS --connect-timeout 5 --max-time 10 "$HEALTH_URL"; then
+              echo "Payroll deployment is healthy at ${HEALTH_URL}"
+              exit 0
+            fi
+            echo "Payroll health is not ready yet; retrying (${attempt}/18)"
+            sleep 5
+          done
+          echo "::error::Payroll health endpoint is not reachable at ${HEALTH_URL}"
+          exit 1
+
+      - name: Fetch deployment diagnostics on failure
+        if: failure()
+        run: |
+          set -euo pipefail
+          SSH_OPTS="-i ~/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p $AWS_SSH_PORT"
+          ssh $SSH_OPTS "$AWS_USER@$AWS_HOST" "(docker ps -a || sudo docker ps -a || true); (docker logs --tail 250 mysawit-payroll-service || sudo docker logs --tail 250 mysawit-payroll-service || true)"

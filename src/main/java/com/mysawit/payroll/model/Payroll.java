@@ -11,9 +11,6 @@ public class Payroll {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "event_id", unique = true)
-    private String eventId;
-
     @Column(name = "employee_id", nullable = false)
     private String userId;
 
@@ -115,14 +112,6 @@ public class Payroll {
         this.bonusAmount = 0.0;
         this.deductionAmount = 0.0;
         calculateTotal();
-    }
-
-    public String getEventId() {
-        return eventId;
-    }
-
-    public void setEventId(String eventId) {
-        this.eventId = eventId;
     }
 
     // Getters and Setters
