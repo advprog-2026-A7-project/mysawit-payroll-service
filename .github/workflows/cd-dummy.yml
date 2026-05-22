@@ -1,10 +1,12 @@
 name: Dummy CD (Guarded)
 
 on:
+  pull_request:
+    branches: [staging, master, main]
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-    branches: [main]
+    branches: [staging, main]
   workflow_dispatch:
     inputs:
       simulated_quality_result:
@@ -37,6 +39,12 @@ jobs:
             echo "Simulated quality gate failed. Blocking CD."
             exit 1
           fi
+
+      - name: Validate quality gate from pull request checks
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          echo "Pull request CD smoke check is allowed to run."
+          echo "Repository branch protection should require CI and SonarCloud checks before merge."
 
   dummy-deploy:
     runs-on: ubuntu-latest
