@@ -5,8 +5,10 @@ import com.mysawit.payroll.event.HarvestEvent;
 import com.mysawit.payroll.event.PayrollEvent;
 import com.mysawit.payroll.event.ShipmentEvent;
 import com.mysawit.payroll.model.Payroll;
+import com.mysawit.payroll.model.PayrollBrokerEvent;
 import com.mysawit.payroll.model.UserReplica;
 import com.mysawit.payroll.model.WageConfig;
+import com.mysawit.payroll.repository.PayrollBrokerEventRepository;
 import com.mysawit.payroll.repository.PayrollRepository;
 import com.mysawit.payroll.repository.UserReplicaRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +35,9 @@ class PayrollServiceTest {
 
     @Mock
     private PayrollRepository payrollRepository;
+
+    @Mock
+    private PayrollBrokerEventRepository payrollBrokerEventRepository;
 
     @Mock
     private UserReplicaRepository userReplicaRepository;
@@ -396,9 +401,13 @@ class PayrollServiceTest {
     @Test
     void processHarvestPayrollSavesWhenEventIdNotSeen() {
         HarvestEvent event = createHarvestEvent("evt-1", USER_ID, 10000.0);
-        when(payrollRepository.findByEventId("evt-1:BURUH:" + USER_ID)).thenReturn(null);
         when(userReplicaRepository.findById(USER_ID)).thenReturn(Optional.empty());
-        when(payrollRepository.save(any())).thenReturn(new Payroll());
+        when(payrollRepository.save(any())).thenAnswer(inv -> {
+            Payroll payroll = inv.getArgument(0);
+            payroll.setId(10L);
+            return payroll;
+        });
+        when(payrollBrokerEventRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         payrollService.processHarvestPayroll(event);
 
@@ -410,31 +419,44 @@ class PayrollServiceTest {
         assertEquals("PENDING", saved.getStatus());
         assertEquals("BURUH", saved.getRoleType());
         assertEquals("HARVEST", saved.getSourceType());
-        assertEquals("evt-1:BURUH:" + USER_ID, saved.getEventId());
         assertEquals("Generated from HarvestEvent: evt-1:BURUH:" + USER_ID, saved.getNotes());
+
+        ArgumentCaptor<PayrollBrokerEvent> eventCaptor = ArgumentCaptor.forClass(PayrollBrokerEvent.class);
+        verify(payrollBrokerEventRepository).save(eventCaptor.capture());
+        PayrollBrokerEvent savedEvent = eventCaptor.getValue();
+        assertEquals("evt-1:BURUH:" + USER_ID, savedEvent.getEventKey());
+        assertEquals("evt-1", savedEvent.getEventId());
+        assertEquals("HarvestEvent", savedEvent.getEventType());
+        assertEquals("HARVEST", savedEvent.getSourceType());
+        assertEquals(USER_ID, savedEvent.getUserId());
+        assertEquals("BURUH", savedEvent.getRoleType());
+        assertEquals(10000.0, savedEvent.getAmount());
+        assertEquals(10L, savedEvent.getPayrollId());
     }
 
     @Test
     void processHarvestPayrollSkipsWhenEventIdAlreadySeen() {
         HarvestEvent event = createHarvestEvent("evt-2", USER_ID, 10000.0);
-        when(payrollRepository.findByEventId("evt-2:BURUH:" + USER_ID)).thenReturn(new Payroll());
+        when(payrollBrokerEventRepository.existsByEventKey("evt-2:BURUH:" + USER_ID)).thenReturn(true);
 
         payrollService.processHarvestPayroll(event);
 
         verify(payrollRepository, never()).save(any());
+        verify(payrollBrokerEventRepository, never()).save(any());
         verifyNoInteractions(userReplicaRepository);
     }
 
     @Test
     void processShipmentPayrollSavesWhenEventIdNotSeen() {
         ShipmentEvent event = createShipmentEvent("evt-3", USER_ID, 20000.0);
-        when(payrollRepository.findByEventId("evt-3:SUPIR:" + USER_ID)).thenReturn(null);
         when(userReplicaRepository.findById(USER_ID)).thenReturn(Optional.empty());
         when(payrollRepository.save(any())).thenReturn(new Payroll());
+        when(payrollBrokerEventRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         payrollService.processShipmentPayroll(event);
 
         verify(payrollRepository).save(any(Payroll.class));
+        verify(payrollBrokerEventRepository).save(any(PayrollBrokerEvent.class));
     }
 
     @Test
@@ -447,14 +469,13 @@ class PayrollServiceTest {
         event.setRecognizedKg(80.0);
         event.setSourceReference("shipment-001");
         event.setTimestamp(1779400000000L);
-        when(payrollRepository.findByEventId("shipment-event:SUPIR:driver-1")).thenReturn(null);
-        when(payrollRepository.findByEventId("shipment-event:MANDOR:mandor-1")).thenReturn(null);
         when(wageConfigService.getActiveConfigForRole("SUPIR"))
                 .thenReturn(Optional.of(new WageConfig("SUPIR", 250.0, java.time.LocalDate.now())));
         when(wageConfigService.getActiveConfigForRole("MANDOR"))
                 .thenReturn(Optional.of(new WageConfig("MANDOR", 150.0, java.time.LocalDate.now())));
         when(userReplicaRepository.findById(any())).thenReturn(Optional.empty());
         when(payrollRepository.save(any())).thenReturn(new Payroll());
+        when(payrollBrokerEventRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         payrollService.processShipmentPayroll(event);
 
@@ -465,6 +486,7 @@ class PayrollServiceTest {
         assertEquals("MANDOR", captor.getAllValues().get(1).getRoleType());
         assertEquals(10800.0, captor.getAllValues().get(1).getBaseAmount());
         assertEquals("shipment-001", captor.getAllValues().get(0).getSourceReference());
+        verify(payrollBrokerEventRepository, times(2)).save(any(PayrollBrokerEvent.class));
     }
 
     @Test
@@ -474,11 +496,11 @@ class PayrollServiceTest {
         event.setEmployeeId(USER_ID);
         event.setRoleType("MANDOR");
         event.setRecognizedKg(50.0);
-        when(payrollRepository.findByEventId("shipment-fallback:MANDOR:" + USER_ID)).thenReturn(null);
         when(wageConfigService.getActiveConfigForRole("MANDOR"))
                 .thenReturn(Optional.of(new WageConfig("MANDOR", 150.0, java.time.LocalDate.now())));
         when(userReplicaRepository.findById(USER_ID)).thenReturn(Optional.empty());
         when(payrollRepository.save(any())).thenReturn(new Payroll());
+        when(payrollBrokerEventRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         payrollService.processShipmentPayroll(event);
 
@@ -491,10 +513,10 @@ class PayrollServiceTest {
     @Test
     void processPayrollEnrichesNotesWhenUserReplicaPresent() {
         HarvestEvent event = createHarvestEvent("evt-4", USER_ID, 15000.0);
-        when(payrollRepository.findByEventId("evt-4:BURUH:" + USER_ID)).thenReturn(null);
         when(userReplicaRepository.findById(USER_ID))
                 .thenReturn(Optional.of(new UserReplica(USER_ID, "sari", "BURUH")));
         when(payrollRepository.save(any())).thenReturn(new Payroll());
+        when(payrollBrokerEventRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         payrollService.processHarvestPayroll(event);
 
@@ -508,10 +530,10 @@ class PayrollServiceTest {
         HarvestEvent event = createHarvestEvent("evt-5", USER_ID, 0.0);
         event.setKilograms(100.0);
         WageConfig wageConfig = new WageConfig("BURUH", 350.0, java.time.LocalDate.now());
-        when(payrollRepository.findByEventId("evt-5:BURUH:" + USER_ID)).thenReturn(null);
         when(wageConfigService.getActiveConfigForRole("BURUH")).thenReturn(Optional.of(wageConfig));
         when(userReplicaRepository.findById(USER_ID)).thenReturn(Optional.empty());
         when(payrollRepository.save(any())).thenReturn(new Payroll());
+        when(payrollBrokerEventRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         payrollService.processHarvestPayroll(event);
 
@@ -565,6 +587,7 @@ class PayrollServiceTest {
                 String.class,
                 String.class,
                 String.class,
+                String.class,
                 double.class,
                 double.class,
                 String.class,
@@ -576,6 +599,7 @@ class PayrollServiceTest {
         Exception missingEventId = assertThrows(Exception.class, () -> processPayrollEvent.invoke(
                 payrollService,
                 " ",
+                "evt-reflect",
                 USER_ID,
                 "BURUH",
                 100.0,

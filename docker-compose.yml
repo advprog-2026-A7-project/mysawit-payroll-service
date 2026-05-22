@@ -1,0 +1,107 @@
+services:
+  payroll-db:
+    image: postgres:16-alpine
+    container_name: mysawit-payroll-db
+    environment:
+      POSTGRES_DB: ${PAYROLL_DB_NAME:-mysawit_payroll}
+      POSTGRES_USER: ${PAYROLL_DB_USERNAME:-mysawit}
+      POSTGRES_PASSWORD: ${PAYROLL_DB_PASSWORD:-mysawit}
+    ports:
+      - "${PAYROLL_DB_PORT:-5435}:5432"
+    volumes:
+      - payroll-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mysawit-observability
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: mysawit-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mysawit-observability
+
+  payroll-service:
+    build:
+      context: .
+    image: mysawit-payroll-service:local
+    container_name: mysawit-payroll-service
+    environment:
+      DB_URL: jdbc:postgresql://payroll-db:5432/${PAYROLL_DB_NAME:-mysawit_payroll}
+      DB_USERNAME: ${PAYROLL_DB_USERNAME:-mysawit}
+      DB_PASSWORD: ${PAYROLL_DB_PASSWORD:-mysawit}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      RABBITMQ_HEALTH_ENABLED: "true"
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+    ports:
+      - "${PAYROLL_SERVICE_PORT:-8085}:8085"
+    depends_on:
+      payroll-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - mysawit-observability
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: mysawit-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - payroll-service
+    networks:
+      - mysawit-observability
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: mysawit-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_DEFAULT_THEME: light
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - mysawit-observability
+
+networks:
+  mysawit-observability:
+    driver: bridge
+
+volumes:
+  payroll-db-data:
+  rabbitmq-data:
+  prometheus-data:
+  grafana-data:

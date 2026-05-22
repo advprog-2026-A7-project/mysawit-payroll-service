@@ -45,6 +45,31 @@ Runs at: `http://localhost:8085`
 GET /actuator/health
 ```
 
+Prometheus metrics are exposed at:
+
+```text
+GET /actuator/prometheus
+```
+
+## Docker Stack
+
+From the repository root, run the local payroll stack:
+
+```powershell
+docker compose up -d --build
+```
+
+Default local URLs:
+
+```text
+Payroll API: http://localhost:8085
+RabbitMQ UI: http://localhost:15672 (guest / guest)
+Prometheus: http://localhost:9090
+Grafana: http://localhost:3001 (admin / admin)
+```
+
+The compose stack includes local PostgreSQL, RabbitMQ, Payroll Service, Prometheus, and Grafana. Copy `.env.example` to `.env` from the repository root if you want to override ports or credentials.
+
 ## Main Endpoints
 
 Payroll:
