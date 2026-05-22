@@ -2,6 +2,7 @@ package com.mysawit.payroll;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mysawit.payroll.repository.PaymentTransactionRepository;
+import com.mysawit.payroll.repository.PayrollBrokerEventRepository;
 import com.mysawit.payroll.repository.PayrollRepository;
 import com.mysawit.payroll.repository.WageConfigRepository;
 import com.mysawit.payroll.repository.WalletRepository;
@@ -38,6 +39,9 @@ class PayrollIntegrationTest {
     private PayrollRepository payrollRepository;
 
     @Autowired
+    private PayrollBrokerEventRepository payrollBrokerEventRepository;
+
+    @Autowired
     private WalletRepository walletRepository;
 
     @Autowired
@@ -49,6 +53,7 @@ class PayrollIntegrationTest {
     @BeforeEach
     void cleanDatabase() {
         paymentTransactionRepository.deleteAll();
+        payrollBrokerEventRepository.deleteAll();
         payrollRepository.deleteAll();
         walletRepository.deleteAll();
         wageConfigRepository.deleteAll();

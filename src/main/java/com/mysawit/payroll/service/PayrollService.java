@@ -3,7 +3,9 @@ package com.mysawit.payroll.service;
 import com.mysawit.payroll.event.HarvestEvent;
 import com.mysawit.payroll.event.ShipmentEvent;
 import com.mysawit.payroll.model.Payroll;
+import com.mysawit.payroll.model.PayrollBrokerEvent;
 import com.mysawit.payroll.model.WageConfig;
+import com.mysawit.payroll.repository.PayrollBrokerEventRepository;
 import com.mysawit.payroll.repository.PayrollRepository;
 import com.mysawit.payroll.repository.UserReplicaRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +23,9 @@ public class PayrollService {
 
     @Autowired
     private PayrollRepository payrollRepository;
+
+    @Autowired
+    private PayrollBrokerEventRepository payrollBrokerEventRepository;
 
     @Autowired
     private UserReplicaRepository userReplicaRepository;
@@ -182,11 +187,13 @@ public class PayrollService {
 
     // === Event-driven Payroll Generation ===
 
+    @Transactional
     public void processHarvestPayroll(HarvestEvent event) {
         double kilograms = firstPositive(event.getKilograms(), event.getTotalKg());
         double amount = amountFromEventOrFormula(event, "BURUH", kilograms);
         processPayrollEvent(
                 eventKey(event.getEventId(), "BURUH", event.getEmployeeId()),
+                event.getEventId(),
                 event.getEmployeeId(),
                 "BURUH",
                 amount,
@@ -197,11 +204,13 @@ public class PayrollService {
                 eventTimeOrNow(event.getTimestamp()));
     }
 
+    @Transactional
     public void processShipmentPayroll(ShipmentEvent event) {
         if (hasText(event.getDriverId())) {
             double driverKg = firstPositive(event.getTotalKg(), event.getKilograms());
             processPayrollEvent(
                     eventKey(event.getEventId(), "SUPIR", event.getDriverId()),
+                    event.getEventId(),
                     event.getDriverId(),
                     "SUPIR",
                     amountFromEventOrFormula(event, "SUPIR", driverKg),
@@ -216,6 +225,7 @@ public class PayrollService {
             double mandorKg = firstPositive(event.getRecognizedKg(), event.getTotalKg(), event.getKilograms());
             processPayrollEvent(
                     eventKey(event.getEventId(), "MANDOR", event.getMandorId()),
+                    event.getEventId(),
                     event.getMandorId(),
                     "MANDOR",
                     calculateWage("MANDOR", mandorKg),
@@ -232,6 +242,7 @@ public class PayrollService {
             double amount = amountFromEventOrFormula(event, role, kilograms);
             processPayrollEvent(
                     eventKey(event.getEventId(), role, event.getEmployeeId()),
+                    event.getEventId(),
                     event.getEmployeeId(),
                     role,
                     amount,
@@ -244,6 +255,7 @@ public class PayrollService {
     }
 
     private void processPayrollEvent(
+            String eventKey,
             String eventId,
             String userId,
             String roleType,
@@ -253,18 +265,19 @@ public class PayrollService {
             String sourceReference,
             String eventType,
             LocalDateTime eventTime) {
-        if (!hasText(eventId)) {
-            throw new IllegalArgumentException("eventId is required");
+        if (!hasText(eventKey)) {
+            throw new IllegalArgumentException("eventKey is required");
         }
         if (!hasText(userId)) {
             throw new IllegalArgumentException("employeeId is required");
         }
-        if (payrollRepository.findByEventId(eventId) != null) {
+        if (payrollBrokerEventRepository.existsByEventKey(eventKey)) {
             return;
         }
+        String normalizedRole = normalizeRole(roleType);
         Payroll payroll = new Payroll();
         payroll.setUserId(userId);
-        payroll.setRoleType(normalizeRole(roleType));
+        payroll.setRoleType(normalizedRole);
         payroll.setSourceType(sourceType);
         payroll.setSourceReference(sourceReference);
         payroll.setKilograms(kilograms > 0 ? kilograms : null);
@@ -274,10 +287,46 @@ public class PayrollService {
         payroll.setStatus("PENDING");
         payroll.setPeriodStart(eventTime);
         payroll.setPeriodEnd(eventTime);
-        payroll.setNotes(buildNotes(eventType, eventId, userId));
-        payroll.setEventId(eventId);
+        payroll.setNotes(buildNotes(eventType, eventKey, userId));
 
-        payrollRepository.save(payroll);
+        Payroll savedPayroll = payrollRepository.save(payroll);
+        payrollBrokerEventRepository.save(brokerEvent(
+                eventKey,
+                eventId,
+                eventType,
+                sourceType,
+                sourceReference,
+                userId,
+                normalizedRole,
+                kilograms,
+                amount,
+                savedPayroll.getId()));
+    }
+
+    private PayrollBrokerEvent brokerEvent(
+            String eventKey,
+            String eventId,
+            String eventType,
+            String sourceType,
+            String sourceReference,
+            String userId,
+            String roleType,
+            double kilograms,
+            double amount,
+            Long payrollId) {
+        PayrollBrokerEvent brokerEvent = new PayrollBrokerEvent();
+        brokerEvent.setEventKey(eventKey);
+        brokerEvent.setEventId(eventId);
+        brokerEvent.setEventType(eventType);
+        brokerEvent.setSourceType(sourceType);
+        brokerEvent.setSourceReference(sourceReference);
+        brokerEvent.setUserId(userId);
+        brokerEvent.setRoleType(roleType);
+        brokerEvent.setKilograms(kilograms > 0 ? kilograms : null);
+        brokerEvent.setAmount(amount);
+        brokerEvent.setPayrollId(payrollId);
+        brokerEvent.setProcessedAt(LocalDateTime.now());
+        return brokerEvent;
     }
 
     private String buildNotes(String eventType, String eventId, String userId) {

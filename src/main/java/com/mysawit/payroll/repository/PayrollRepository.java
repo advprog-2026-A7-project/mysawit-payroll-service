@@ -19,6 +19,4 @@ public interface PayrollRepository extends JpaRepository<Payroll, Long> {
             String status,
             LocalDateTime start,
             LocalDateTime end);
-
-    Payroll findByEventId(String eventId);
 }

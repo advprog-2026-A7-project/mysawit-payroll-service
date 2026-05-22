@@ -3,7 +3,7 @@ package com.mysawit.payroll.model;
 import jakarta.persistence.*;
 
 @Entity
-@Table(name = "user_replicas")
+@Table(name = "payroll_user_replicas")
 public class UserReplica {
 
     @Id
