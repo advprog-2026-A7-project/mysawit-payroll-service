@@ -1,5 +1,6 @@
 package com.mysawit.payroll.controller;
 
+import com.mysawit.payroll.config.MidtransSandboxProperties;
 import com.mysawit.payroll.model.PaymentTransaction;
 import com.mysawit.payroll.model.Wallet;
 import com.mysawit.payroll.service.WalletService;
@@ -23,6 +24,9 @@ class WalletControllerTest {
 
     @Mock
     private WalletService walletService;
+
+    @Mock
+    private MidtransSandboxProperties midtransProperties;
 
     @InjectMocks
     private WalletController walletController;
@@ -61,11 +65,11 @@ class WalletControllerTest {
     void topUpSandboxReturnsTransaction() {
         PaymentTransaction transaction = new PaymentTransaction();
         transaction.setTransactionId("sandbox-1");
-        when(walletService.topUpSandbox("admin", 50.0, "XENDIT_SANDBOX")).thenReturn(transaction);
+        when(walletService.topUpSandbox("admin", 50.0, "MIDTRANS_SANDBOX")).thenReturn(transaction);
 
         ResponseEntity<?> response = walletController.topUpSandbox(
                 "admin",
-                Map.of("amountSawitDollar", "50", "gateway", "XENDIT_SANDBOX"));
+                Map.of("amountSawitDollar", "50", "gateway", "MIDTRANS_SANDBOX"));
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertSame(transaction, response.getBody());
@@ -73,11 +77,55 @@ class WalletControllerTest {
 
     @Test
     void topUpSandboxUsesDefaultsAndReturnsBadRequestForInvalidInput() {
-        when(walletService.topUpSandbox("admin", 0.0, "SANDBOX"))
+        when(walletService.topUpSandbox("admin", 0.0, "MIDTRANS_SANDBOX"))
                 .thenThrow(new IllegalArgumentException("Top-up amount must be greater than zero"));
 
         ResponseEntity<?> response = walletController.topUpSandbox("admin", null);
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+    }
+
+    @Test
+    void midtransWebhookSettlesPaidTransactionWhenSignatureIsNotConfigured() {
+        PaymentTransaction transaction = new PaymentTransaction();
+        transaction.setTransactionId("mysawit-topup-1");
+        transaction.setStatus("PAID");
+        when(midtransProperties.getServerKey()).thenReturn("");
+        when(walletService.settleTopUp("mysawit-topup-1", "settlement")).thenReturn(transaction);
+
+        ResponseEntity<?> response = walletController.handleMidtransWebhook(
+                Map.of("order_id", "mysawit-topup-1", "transaction_status", "settlement"));
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertSame(transaction, response.getBody());
+    }
+
+    @Test
+    void midtransWebhookRejectsInvalidSignature() {
+        when(midtransProperties.getServerKey()).thenReturn("server-key");
+
+        ResponseEntity<?> response = walletController.handleMidtransWebhook(
+                Map.of(
+                        "order_id", "mysawit-topup-1",
+                        "transaction_status", "settlement",
+                        "status_code", "200",
+                        "gross_amount", "100000.00",
+                        "signature_key", "bad-signature"));
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        verify(walletService, never()).settleTopUp(anyString(), anyString());
+    }
+
+    @Test
+    void settleSandboxTransactionDefaultsToPaid() {
+        PaymentTransaction transaction = new PaymentTransaction();
+        transaction.setTransactionId("mysawit-topup-1");
+        transaction.setStatus("PAID");
+        when(walletService.settleTopUp("mysawit-topup-1", "PAID")).thenReturn(transaction);
+
+        ResponseEntity<?> response = walletController.settleSandboxTransaction("mysawit-topup-1", null);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertSame(transaction, response.getBody());
     }
 }

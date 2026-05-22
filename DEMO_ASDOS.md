@@ -333,7 +333,7 @@ Pastikan wallet admin punya saldo. Untuk demo, top up sandbox dulu:
 ```powershell
 $topUpBody = @{
   amountSawitDollar = "5000000"
-  gateway = "XENDIT_SANDBOX"
+  gateway = "MIDTRANS_SANDBOX"
 } | ConvertTo-Json
 
 Invoke-RestMethod `
@@ -479,7 +479,7 @@ Command:
 
 ```powershell
 $paymentBody = @{
-  paymentMethod = "XENDIT_SANDBOX"
+  paymentMethod = "MIDTRANS_SANDBOX"
 } | ConvertTo-Json
 
 Invoke-RestMethod `
@@ -492,7 +492,7 @@ Invoke-RestMethod `
 Expected:
 
 - `status` berubah menjadi `PAID`.
-- `paymentMethod` tersimpan sebagai `XENDIT_SANDBOX`.
+- `paymentMethod` tersimpan sebagai `MIDTRANS_SANDBOX`.
 - `paymentDate` terisi timestamp saat request.
 
 Narasi:
@@ -688,4 +688,4 @@ Tanggal verifikasi: 2026-05-19.
 - `gradlew.bat test`: exit code 0.
 - Frontend `https://mysawit-web.vercel.app/`: HTTP 200.
 - Backend AWS `18.205.109.188:8085`: TCP port 8085 terbuka, tetapi request HTTP ke `/actuator/health` dan `/api/admin/wage-configs` timeout dari mesin ini.
-- Search branch remote: belum ditemukan implementasi Xendit/Midtrans SDK/API; endpoint pembayaran yang tersedia adalah `PATCH /api/payrolls/{id}/pay`.
+- Search branch remote: endpoint pembayaran payroll tersedia lewat `PATCH /api/payrolls/{id}/pay`, sementara top-up wallet memakai Midtrans Snap sandbox.

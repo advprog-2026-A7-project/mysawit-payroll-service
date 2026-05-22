@@ -170,7 +170,7 @@ paths:
           description: Wallet
   /api/wallets/{userId}/top-up/sandbox:
     post:
-      summary: Sandbox wallet top-up
+      summary: Create Midtrans Snap sandbox wallet top-up transaction
       parameters:
         - $ref: "#/components/parameters/UserId"
       requestBody:
@@ -187,9 +187,61 @@ paths:
                   type: string
       responses:
         "200":
-          description: Paid sandbox payment transaction
+          description: Pending Midtrans sandbox payment transaction with redirect URL
         "400":
-          description: Invalid amount
+          description: Invalid amount or Midtrans sandbox configuration
+  /api/wallets/midtrans/webhook:
+    post:
+      summary: Receive Midtrans notification webhook and settle wallet top-up
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [order_id, transaction_status]
+              properties:
+                order_id:
+                  type: string
+                transaction_status:
+                  type: string
+                  enum: [pending, settlement, capture, expire, cancel, deny, failure]
+                status_code:
+                  type: string
+                gross_amount:
+                  type: string
+                signature_key:
+                  type: string
+      responses:
+        "200":
+          description: Payment transaction updated
+        "400":
+          description: Invalid signature, transaction id, or status
+  /api/wallets/transactions/{transactionId}/settle-sandbox:
+    post:
+      summary: Simulate paid Midtrans sandbox callback for local demos
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  default: PAID
+                  enum: [PAID, EXPIRED, FAILED]
+      responses:
+        "200":
+          description: Payment transaction updated
+        "400":
+          description: Invalid transaction id or status
 components:
   parameters:
     PayrollId:

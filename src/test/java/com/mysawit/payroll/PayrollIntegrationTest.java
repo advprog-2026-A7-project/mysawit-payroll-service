@@ -5,6 +5,8 @@ import com.mysawit.payroll.repository.PaymentTransactionRepository;
 import com.mysawit.payroll.repository.PayrollRepository;
 import com.mysawit.payroll.repository.WageConfigRepository;
 import com.mysawit.payroll.repository.WalletRepository;
+import com.mysawit.payroll.service.payment.PaymentGatewayClient;
+import com.mysawit.payroll.service.payment.PaymentGatewayInvoice;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,9 +14,13 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.hasSize;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -45,6 +51,9 @@ class PayrollIntegrationTest {
 
     @Autowired
     private WageConfigRepository wageConfigRepository;
+
+    @MockitoBean
+    private PaymentGatewayClient paymentGatewayClient;
 
     @BeforeEach
     void cleanDatabase() {
@@ -88,18 +97,33 @@ class PayrollIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(configId));
 
-        mockMvc.perform(post("/api/wallets/{userId}/top-up/sandbox", "admin")
+        when(paymentGatewayClient.createTopUpInvoice(anyString(), anyString(), anyDouble(), anyDouble()))
+                .thenAnswer(inv -> new PaymentGatewayInvoice(
+                        "midtrans-token-test",
+                        "PENDING",
+                        "https://app.sandbox.midtrans.com/snap/v4/redirection/token-test"));
+
+        String transaction = mockMvc.perform(post("/api/wallets/{userId}/top-up/sandbox", "admin")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
                                   "amountSawitDollar": "1000",
-                                  "gateway": "sandbox"
+                                  "gateway": "MIDTRANS_SANDBOX"
                                 }
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("PAID"))
+                .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.amountSawitDollar").value(1000.0))
-                .andExpect(jsonPath("$.amountIdr").value(10000000.0));
+                .andExpect(jsonPath("$.amountIdr").value(10000000.0))
+                .andExpect(jsonPath("$.checkoutUrl").value("https://app.sandbox.midtrans.com/snap/v4/redirection/token-test"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        String transactionId = objectMapper.readTree(transaction).get("transactionId").asText();
+
+        mockMvc.perform(post("/api/wallets/transactions/{transactionId}/settle-sandbox", transactionId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PAID"));
 
         String payroll = mockMvc.perform(post("/api/payrolls")
                         .contentType(MediaType.APPLICATION_JSON)

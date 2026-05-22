@@ -38,6 +38,9 @@ public class PaymentTransaction {
     @Column(name = "checkout_url")
     private String checkoutUrl;
 
+    @Column(name = "gateway_transaction_id")
+    private String gatewayTransactionId;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -111,6 +114,14 @@ public class PaymentTransaction {
 
     public void setCheckoutUrl(String checkoutUrl) {
         this.checkoutUrl = checkoutUrl;
+    }
+
+    public String getGatewayTransactionId() {
+        return gatewayTransactionId;
+    }
+
+    public void setGatewayTransactionId(String gatewayTransactionId) {
+        this.gatewayTransactionId = gatewayTransactionId;
     }
 
     public LocalDateTime getCreatedAt() {

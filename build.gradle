@@ -10,8 +10,9 @@ version = '0.0.1-SNAPSHOT'
 description = 'Demo project for Spring Boot'
 
 java {
-	sourceCompatibility = JavaVersion.VERSION_21
-	targetCompatibility = JavaVersion.VERSION_21
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
 }
 
 repositories {
@@ -39,6 +40,22 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+tasks.named('bootRun') {
+	def envFile = file('.env')
+	if (envFile.exists()) {
+		envFile.readLines().each { line ->
+			if (line && !line.startsWith('#')) {
+				def idx = line.indexOf('=')
+				if (idx > 0) {
+					def key = line.substring(0, idx).trim()
+					def value = line.substring(idx + 1).trim()
+					environment(key, value)
+				}
+			}
+		}
+	}
 }
 
 jacoco {

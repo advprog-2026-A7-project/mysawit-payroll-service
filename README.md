@@ -13,7 +13,7 @@ Spring Boot payroll microservice for MySawit.
 - Event idempotency through unique role-scoped `eventId`.
 - Payroll status flow: `PENDING`, `ACCEPTED`, `APPROVED`, `REJECTED`, `PAID`.
 - Admin approve/reject, including mandatory rejection reason.
-- Wallet with SawitDollar balance and sandbox top-up.
+- Wallet with SawitDollar balance and Midtrans Snap sandbox top-up.
 - Payroll approval transfers SawitDollar from admin wallet to worker wallet.
 
 ## Run Local
@@ -26,6 +26,17 @@ $env:DB_USERNAME="postgres"
 $env:DB_PASSWORD="<your-db-password>"
 
 .\gradlew.bat bootRun
+```
+
+For macOS/Linux, copy `.env.example` values into your shell before running:
+
+```bash
+export DB_URL='jdbc:postgresql://<host>:5432/postgres?sslmode=require'
+export DB_USERNAME='postgres'
+export DB_PASSWORD='<your-db-password>'
+export MIDTRANS_SERVER_KEY='SB-Mid-server-<your-sandbox-server-key>'
+
+./gradlew bootRun
 ```
 
 Optional RabbitMQ environment variables:
@@ -82,16 +93,20 @@ Wallet:
 GET  /api/wallets/{userId}
 GET  /api/wallets/{userId}/transactions
 POST /api/wallets/{userId}/top-up/sandbox
+POST /api/wallets/midtrans/webhook
+POST /api/wallets/transactions/{transactionId}/settle-sandbox
 ```
 
-Sandbox top-up body:
+Midtrans sandbox top-up body:
 
 ```json
 {
   "amountSawitDollar": "100",
-  "gateway": "XENDIT_SANDBOX"
+  "gateway": "MIDTRANS_SANDBOX"
 }
 ```
+
+`top-up/sandbox` creates a Midtrans Snap transaction and stores the local transaction as `PENDING`. The admin wallet balance is credited when Midtrans sends a webhook with `transaction_status: "settlement"` or `"capture"` to `/api/wallets/midtrans/webhook`. For local demos without a public webhook URL, call `/api/wallets/transactions/{transactionId}/settle-sandbox` to simulate the paid sandbox callback.
 
 Approve payroll body:
 

@@ -17,22 +17,24 @@ class PaymentTransactionTest {
         transaction.setId(1L);
         transaction.setTransactionId("sandbox-001");
         transaction.setUserId("admin");
-        transaction.setGateway("XENDIT_SANDBOX");
+        transaction.setGateway("MIDTRANS_SANDBOX");
         transaction.setStatus("PAID");
         transaction.setAmountSawitDollar(50.0);
         transaction.setAmountIdr(500000.0);
         transaction.setCheckoutUrl("sandbox://payment/sandbox-001");
+        transaction.setGatewayTransactionId("midtrans-token-001");
         transaction.setCreatedAt(createdAt);
         transaction.setPaidAt(paidAt);
 
         assertEquals(1L, transaction.getId());
         assertEquals("sandbox-001", transaction.getTransactionId());
         assertEquals("admin", transaction.getUserId());
-        assertEquals("XENDIT_SANDBOX", transaction.getGateway());
+        assertEquals("MIDTRANS_SANDBOX", transaction.getGateway());
         assertEquals("PAID", transaction.getStatus());
         assertEquals(50.0, transaction.getAmountSawitDollar());
         assertEquals(500000.0, transaction.getAmountIdr());
         assertEquals("sandbox://payment/sandbox-001", transaction.getCheckoutUrl());
+        assertEquals("midtrans-token-001", transaction.getGatewayTransactionId());
         assertEquals(createdAt, transaction.getCreatedAt());
         assertEquals(paidAt, transaction.getPaidAt());
     }

@@ -4,6 +4,8 @@ import com.mysawit.payroll.model.PaymentTransaction;
 import com.mysawit.payroll.model.Wallet;
 import com.mysawit.payroll.repository.PaymentTransactionRepository;
 import com.mysawit.payroll.repository.WalletRepository;
+import com.mysawit.payroll.service.payment.PaymentGatewayClient;
+import com.mysawit.payroll.service.payment.PaymentGatewayInvoice;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,6 +28,9 @@ class WalletServiceTest {
 
     @Mock
     private PaymentTransactionRepository paymentTransactionRepository;
+
+    @Mock
+    private PaymentGatewayClient paymentGatewayClient;
 
     @InjectMocks
     private WalletService walletService;
@@ -63,18 +68,21 @@ class WalletServiceTest {
     }
 
     @Test
-    void topUpSandboxAddsBalanceAndCreatesPaidTransaction() {
+    void topUpSandboxCreatesPendingMidtransTransactionWithoutCreditingBalance() {
         when(walletRepository.findByUserId("admin")).thenReturn(Optional.of(adminWallet));
-        when(walletRepository.save(any(Wallet.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(paymentGatewayClient.createTopUpInvoice(anyString(), eq("admin"), eq(25.0), eq(250000.0)))
+                .thenReturn(new PaymentGatewayInvoice("midtrans-token-1", "PENDING", "https://app.sandbox.midtrans.com/snap/v4/redirection/token-1"));
         when(paymentTransactionRepository.save(any(PaymentTransaction.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        PaymentTransaction result = walletService.topUpSandbox("admin", 25.0, "xendit_sandbox");
+        PaymentTransaction result = walletService.topUpSandbox("admin", 25.0, "midtrans_sandbox");
 
-        assertEquals(1025.0, adminWallet.getBalance());
-        assertEquals("PAID", result.getStatus());
-        assertEquals("XENDIT_SANDBOX", result.getGateway());
+        assertEquals(1000.0, adminWallet.getBalance());
+        assertEquals("PENDING", result.getStatus());
+        assertEquals("MIDTRANS_SANDBOX", result.getGateway());
         assertEquals(250000.0, result.getAmountIdr());
-        assertTrue(result.getCheckoutUrl().startsWith("sandbox://payment/"));
+        assertEquals("midtrans-token-1", result.getGatewayTransactionId());
+        assertEquals("https://app.sandbox.midtrans.com/snap/v4/redirection/token-1", result.getCheckoutUrl());
+        assertTrue(result.getTransactionId().startsWith("mysawit-topup-"));
     }
 
     @Test
@@ -90,12 +98,54 @@ class WalletServiceTest {
     @Test
     void topUpSandboxDefaultsGatewayWhenMissing() {
         when(walletRepository.findByUserId("admin")).thenReturn(Optional.of(adminWallet));
-        when(walletRepository.save(any(Wallet.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(paymentGatewayClient.createTopUpInvoice(anyString(), eq("admin"), eq(10.0), eq(100000.0)))
+                .thenReturn(new PaymentGatewayInvoice("midtrans-token-2", "PENDING", "https://app.sandbox.midtrans.com/snap/v4/redirection/token-2"));
         when(paymentTransactionRepository.save(any(PaymentTransaction.class))).thenAnswer(inv -> inv.getArgument(0));
 
         PaymentTransaction result = walletService.topUpSandbox("admin", 10.0, " ");
 
-        assertEquals("SANDBOX", result.getGateway());
+        assertEquals("MIDTRANS_SANDBOX", result.getGateway());
+    }
+
+    @Test
+    void settleTopUpCreditsWalletWhenPaid() {
+        PaymentTransaction transaction = pendingTransaction("admin", 25.0);
+        when(paymentTransactionRepository.findByTransactionId("mysawit-topup-1")).thenReturn(Optional.of(transaction));
+        when(walletRepository.findByUserId("admin")).thenReturn(Optional.of(adminWallet));
+        when(walletRepository.save(any(Wallet.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(paymentTransactionRepository.save(any(PaymentTransaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        PaymentTransaction result = walletService.settleTopUp("mysawit-topup-1", "settlement");
+
+        assertEquals("PAID", result.getStatus());
+        assertEquals(1025.0, adminWallet.getBalance());
+        assertNotNull(result.getPaidAt());
+    }
+
+    @Test
+    void settleTopUpDoesNotCreditTwiceWhenAlreadyPaid() {
+        PaymentTransaction transaction = pendingTransaction("admin", 25.0);
+        transaction.setStatus("PAID");
+        when(paymentTransactionRepository.findByTransactionId("mysawit-topup-1")).thenReturn(Optional.of(transaction));
+        when(paymentTransactionRepository.save(any(PaymentTransaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        PaymentTransaction result = walletService.settleTopUp("mysawit-topup-1", "SETTLED");
+
+        assertEquals("PAID", result.getStatus());
+        assertEquals(1000.0, adminWallet.getBalance());
+        verify(walletRepository, never()).save(any());
+    }
+
+    @Test
+    void settleTopUpStoresTerminalFailureStatuses() {
+        PaymentTransaction transaction = pendingTransaction("admin", 25.0);
+        when(paymentTransactionRepository.findByTransactionId("mysawit-topup-1")).thenReturn(Optional.of(transaction));
+        when(paymentTransactionRepository.save(any(PaymentTransaction.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        PaymentTransaction result = walletService.settleTopUp("mysawit-topup-1", "EXPIRED");
+
+        assertEquals("EXPIRED", result.getStatus());
+        assertEquals(1000.0, adminWallet.getBalance());
     }
 
     @Test
@@ -131,5 +181,17 @@ class WalletServiceTest {
         assertThrows(IllegalArgumentException.class, () -> walletService.transfer("admin", "worker-1", 0.0));
         assertThrows(IllegalArgumentException.class, () -> walletService.getOrCreateWallet(" "));
         assertThrows(IllegalArgumentException.class, () -> walletService.getTransactionsForUser(null));
+    }
+
+    private PaymentTransaction pendingTransaction(String userId, double amountSawitDollar) {
+        PaymentTransaction transaction = new PaymentTransaction();
+        transaction.setTransactionId("mysawit-topup-1");
+        transaction.setUserId(userId);
+        transaction.setGateway("MIDTRANS_SANDBOX");
+        transaction.setStatus("PENDING");
+        transaction.setAmountSawitDollar(amountSawitDollar);
+        transaction.setAmountIdr(amountSawitDollar * WalletService.IDR_PER_SAWIT_DOLLAR);
+        transaction.setCheckoutUrl("https://app.sandbox.midtrans.com/snap/v4/redirection/token-1");
+        return transaction;
     }
 }
