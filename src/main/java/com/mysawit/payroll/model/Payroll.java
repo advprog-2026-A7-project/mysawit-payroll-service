@@ -14,8 +14,23 @@ public class Payroll {
     @Column(name = "event_id", unique = true)
     private String eventId; // Untuk idempotency event
 
-    @Column(name = "employee_id", nullable = false)
-    private Long employeeId;
+    @Column(name = "employee_id")
+    private String employeeId;
+
+    @Column(name = "user_id")
+    private String userId;
+
+    @Column(name = "role_type")
+    private String roleType;
+
+    @Column(name = "source_type")
+    private String sourceType;
+
+    @Column(name = "source_reference")
+    private String sourceReference;
+
+    @Column(name = "kilograms")
+    private Double kilograms;
 
     @Column(name = "period_start", nullable = false)
     private LocalDateTime periodStart;
@@ -44,6 +59,24 @@ public class Payroll {
     @Column(name = "payment_method")
     private String paymentMethod; // CASH, BANK_TRANSFER, CHEQUE
 
+    @Column(name = "approved_by")
+    private String approvedBy;
+
+    @Column(name = "approved_at")
+    private LocalDateTime approvedAt;
+
+    @Column(name = "rejected_at")
+    private LocalDateTime rejectedAt;
+
+    @Column(name = "rejection_reason", length = 1000)
+    private String rejectionReason;
+
+    @Column(name = "wallet_settled", nullable = false)
+    private Boolean walletSettled = false;
+
+    @Column(name = "wallet_transfer_amount")
+    private Double walletTransferAmount;
+
     @Column(length = 1000)
     private String notes;
 
@@ -57,23 +90,54 @@ public class Payroll {
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
+        normalizeDefaults();
         calculateTotal();
     }
 
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+        normalizeDefaults();
         calculateTotal();
     }
 
+    private void normalizeDefaults() {
+        if (status == null || status.isBlank()) {
+            status = "PENDING";
+        }
+        if (bonusAmount == null) {
+            bonusAmount = 0.0;
+        }
+        if (deductionAmount == null) {
+            deductionAmount = 0.0;
+        }
+        if (walletSettled == null) {
+            walletSettled = false;
+        }
+    }
+
     private void calculateTotal() {
-        this.totalAmount = this.baseAmount + this.bonusAmount - this.deductionAmount;
+        double base = this.baseAmount == null ? 0.0 : this.baseAmount;
+        double bonus = this.bonusAmount == null ? 0.0 : this.bonusAmount;
+        double deduction = this.deductionAmount == null ? 0.0 : this.deductionAmount;
+        this.totalAmount = base + bonus - deduction;
     }
 
     // Constructors
     public Payroll() {}
 
     public Payroll(Long employeeId, LocalDateTime periodStart, LocalDateTime periodEnd, Double baseAmount, String status) {
+        this.employeeId = employeeId == null ? null : String.valueOf(employeeId);
+        this.periodStart = periodStart;
+        this.periodEnd = periodEnd;
+        this.baseAmount = baseAmount;
+        this.status = status;
+        this.bonusAmount = 0.0;
+        this.deductionAmount = 0.0;
+        calculateTotal();
+    }
+
+    public Payroll(String employeeId, LocalDateTime periodStart, LocalDateTime periodEnd, Double baseAmount, String status) {
         this.employeeId = employeeId;
         this.periodStart = periodStart;
         this.periodEnd = periodEnd;
@@ -101,12 +165,56 @@ public class Payroll {
         this.id = id;
     }
 
-    public Long getEmployeeId() {
+    public String getEmployeeId() {
         return employeeId;
     }
 
-    public void setEmployeeId(Long employeeId) {
+    public void setEmployeeId(String employeeId) {
         this.employeeId = employeeId;
+    }
+
+    public void setEmployeeId(Long employeeId) {
+        this.employeeId = employeeId == null ? null : String.valueOf(employeeId);
+    }
+
+    public String getUserId() {
+        return userId;
+    }
+
+    public void setUserId(String userId) {
+        this.userId = userId;
+    }
+
+    public String getRoleType() {
+        return roleType;
+    }
+
+    public void setRoleType(String roleType) {
+        this.roleType = roleType;
+    }
+
+    public String getSourceType() {
+        return sourceType;
+    }
+
+    public void setSourceType(String sourceType) {
+        this.sourceType = sourceType;
+    }
+
+    public String getSourceReference() {
+        return sourceReference;
+    }
+
+    public void setSourceReference(String sourceReference) {
+        this.sourceReference = sourceReference;
+    }
+
+    public Double getKilograms() {
+        return kilograms;
+    }
+
+    public void setKilograms(Double kilograms) {
+        this.kilograms = kilograms;
     }
 
     public LocalDateTime getPeriodStart() {
@@ -179,6 +287,54 @@ public class Payroll {
 
     public void setPaymentMethod(String paymentMethod) {
         this.paymentMethod = paymentMethod;
+    }
+
+    public String getApprovedBy() {
+        return approvedBy;
+    }
+
+    public void setApprovedBy(String approvedBy) {
+        this.approvedBy = approvedBy;
+    }
+
+    public LocalDateTime getApprovedAt() {
+        return approvedAt;
+    }
+
+    public void setApprovedAt(LocalDateTime approvedAt) {
+        this.approvedAt = approvedAt;
+    }
+
+    public LocalDateTime getRejectedAt() {
+        return rejectedAt;
+    }
+
+    public void setRejectedAt(LocalDateTime rejectedAt) {
+        this.rejectedAt = rejectedAt;
+    }
+
+    public String getRejectionReason() {
+        return rejectionReason;
+    }
+
+    public void setRejectionReason(String rejectionReason) {
+        this.rejectionReason = rejectionReason;
+    }
+
+    public Boolean getWalletSettled() {
+        return walletSettled;
+    }
+
+    public void setWalletSettled(Boolean walletSettled) {
+        this.walletSettled = walletSettled;
+    }
+
+    public Double getWalletTransferAmount() {
+        return walletTransferAmount;
+    }
+
+    public void setWalletTransferAmount(Double walletTransferAmount) {
+        this.walletTransferAmount = walletTransferAmount;
     }
 
     public String getNotes() {

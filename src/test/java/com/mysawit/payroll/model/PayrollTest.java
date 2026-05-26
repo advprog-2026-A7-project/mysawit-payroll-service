@@ -36,7 +36,7 @@ class PayrollTest {
         payroll.setUpdatedAt(updatedAt);
 
         assertEquals(1L, payroll.getId());
-        assertEquals(2L, payroll.getEmployeeId());
+        assertEquals("2", payroll.getEmployeeId());
         assertEquals(periodStart, payroll.getPeriodStart());
         assertEquals(periodEnd, payroll.getPeriodEnd());
         assertEquals(5000000.0, payroll.getBaseAmount());
@@ -62,6 +62,7 @@ class PayrollTest {
         );
 
         assertEquals(5000000.0, payroll.getTotalAmount());
+        assertEquals("2", payroll.getEmployeeId());
         assertEquals("PENDING", payroll.getStatus());
         assertEquals(0.0, payroll.getBonusAmount());
         assertEquals(0.0, payroll.getDeductionAmount());

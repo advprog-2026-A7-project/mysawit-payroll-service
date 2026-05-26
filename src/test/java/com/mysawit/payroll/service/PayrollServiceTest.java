@@ -2,6 +2,7 @@ package com.mysawit.payroll.service;
 
 import com.mysawit.payroll.model.Payroll;
 import com.mysawit.payroll.repository.PayrollRepository;
+import com.mysawit.payroll.repository.WageConfigRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,6 +29,12 @@ class PayrollServiceTest {
     @Mock
     private PayrollRepository payrollRepository;
 
+    @Mock
+    private WalletService walletService;
+
+    @Mock
+    private WageConfigRepository wageConfigRepository;
+
     @InjectMocks
     private PayrollService payrollService;
 
@@ -52,6 +59,18 @@ class PayrollServiceTest {
         assertEquals(1, result.size());
     }
 
+    @Test
+    void searchPayrollsDelegatesToRepositoryWhenFiltersPresent() {
+        LocalDateTime from = LocalDateTime.of(2026, 1, 1, 0, 0);
+        LocalDateTime to = LocalDateTime.of(2026, 1, 31, 23, 59);
+        when(payrollRepository.search("user-1", "PENDING", from, to)).thenReturn(List.of(pendingPayroll));
+
+        List<Payroll> result = payrollService.searchPayrolls("user-1", "pending", from, to);
+
+        assertEquals(1, result.size());
+        verify(payrollRepository).search("user-1", "PENDING", from, to);
+    }
+
     // ── getPayrollById ────────────────────────────────────────────────────────
 
     @Test
@@ -71,8 +90,16 @@ class PayrollServiceTest {
 
     @Test
     void getPayrollsByEmployeeReturnsList() {
-        when(payrollRepository.findByEmployeeId(10L)).thenReturn(List.of(pendingPayroll));
+        when(payrollRepository.findByEmployeeId("10")).thenReturn(List.of(pendingPayroll));
         List<Payroll> result = payrollService.getPayrollsByEmployee(10L);
+        assertEquals(1, result.size());
+    }
+
+    @Test
+    void getPayrollsByUserReturnsList() {
+        pendingPayroll.setUserId("user-1");
+        when(payrollRepository.findByUserId("user-1")).thenReturn(List.of(pendingPayroll));
+        List<Payroll> result = payrollService.getPayrollsByUser("user-1");
         assertEquals(1, result.size());
     }
 
@@ -92,6 +119,19 @@ class PayrollServiceTest {
         when(payrollRepository.save(any())).thenReturn(pendingPayroll);
         Payroll result = payrollService.createPayroll(pendingPayroll);
         assertEquals("PENDING", result.getStatus());
+    }
+
+    @Test
+    void createPayrollNormalizesUuidUserIdToLegacyEmployeeId() {
+        Payroll payroll = PayrollTestFixtures.pendingPayroll();
+        payroll.setEmployeeId((String) null);
+        payroll.setUserId("b8cb0ce9-7b8f-4bc7-a01c-9be746eeb6d7");
+        when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Payroll result = payrollService.createPayroll(payroll);
+
+        assertNotNull(result.getEmployeeId());
+        assertEquals("b8cb0ce9-7b8f-4bc7-a01c-9be746eeb6d7", result.getUserId());
     }
 
     // ── updatePayroll ─────────────────────────────────────────────────────────
@@ -130,6 +170,31 @@ class PayrollServiceTest {
 
         Payroll result = payrollService.approvePayroll(1L);
         assertEquals("APPROVED", result.getStatus());
+    }
+
+    @Test
+    void approvePayrollWithAdminSettlesWalletAndSetsAccepted() {
+        pendingPayroll.setUserId("worker-1");
+        pendingPayroll.setTotalAmount(5250000.0);
+        when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
+        when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Payroll result = payrollService.approvePayroll(1L, "admin-1");
+
+        assertEquals("ACCEPTED", result.getStatus());
+        assertEquals("admin-1", result.getApprovedBy());
+        assertTrue(result.getWalletSettled());
+        assertEquals(5250000.0, result.getWalletTransferAmount());
+        verify(walletService).transferPayroll("admin-1", "worker-1", 5250000.0, "payroll-1");
+    }
+
+    @Test
+    void approvePayrollWithAdminRejectsMissingUserId() {
+        pendingPayroll.setUserId(null);
+        when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
+
+        assertThrows(IllegalStateException.class, () -> payrollService.approvePayroll(1L, "admin-1"));
+        verify(walletService, never()).transferPayroll(any(), any(), any(), any());
     }
 
     @Test
@@ -174,21 +239,19 @@ class PayrollServiceTest {
     }
 
     @Test
-    void rejectPayrollSetsStatusRejectedWithoutReason() {
+    void rejectPayrollThrowsWithoutReason() {
         when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
-        when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        Payroll result = payrollService.rejectPayroll(1L, null);
-        assertEquals("REJECTED", result.getStatus());
+        assertThrows(IllegalArgumentException.class, () -> payrollService.rejectPayroll(1L, null));
+        verify(payrollRepository, never()).save(any());
     }
 
     @Test
-    void rejectPayrollSetsStatusRejectedWithBlankReason() {
+    void rejectPayrollThrowsWithBlankReason() {
         when(payrollRepository.findById(1L)).thenReturn(Optional.of(pendingPayroll));
-        when(payrollRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        Payroll result = payrollService.rejectPayroll(1L, "  ");
-        assertEquals("REJECTED", result.getStatus());
+        assertThrows(IllegalArgumentException.class, () -> payrollService.rejectPayroll(1L, "  "));
+        verify(payrollRepository, never()).save(any());
     }
 
     @Test

@@ -42,8 +42,21 @@ class PayrollControllerTest {
 
     @Test
     void getAllPayrollsReturns200() {
-        when(payrollService.getAllPayrolls()).thenReturn(List.of(pendingPayroll));
-        ResponseEntity<List<Payroll>> response = payrollController.getAllPayrolls();
+        when(payrollService.searchPayrolls(null, null, null, null)).thenReturn(List.of(pendingPayroll));
+        ResponseEntity<List<Payroll>> response = payrollController.getAllPayrolls(null, null, null, null);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(1, response.getBody().size());
+    }
+
+    @Test
+    void getAllPayrollsUsesFilters() {
+        when(payrollService.searchPayrolls(eq("user-1"), eq("PENDING"), any(), any())).thenReturn(List.of(pendingPayroll));
+        ResponseEntity<List<Payroll>> response = payrollController.getAllPayrolls(
+                "user-1",
+                "PENDING",
+                java.time.LocalDateTime.of(2026, 1, 1, 0, 0),
+                java.time.LocalDateTime.of(2026, 1, 31, 23, 59)
+        );
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(1, response.getBody().size());
     }
@@ -70,6 +83,14 @@ class PayrollControllerTest {
     void getPayrollsByEmployeeReturns200() {
         when(payrollService.getPayrollsByEmployee(10L)).thenReturn(List.of(pendingPayroll));
         ResponseEntity<List<Payroll>> response = payrollController.getPayrollsByEmployee(10L);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(1, response.getBody().size());
+    }
+
+    @Test
+    void getPayrollsByUserReturns200() {
+        when(payrollService.getPayrollsByUser("user-1")).thenReturn(List.of(pendingPayroll));
+        ResponseEntity<List<Payroll>> response = payrollController.getPayrollsByUser("user-1");
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(1, response.getBody().size());
     }
@@ -114,17 +135,25 @@ class PayrollControllerTest {
     @Test
     void approvePayrollReturns200OnSuccess() {
         Payroll approved = new Payroll();
-        approved.setStatus("APPROVED");
-        when(payrollService.approvePayroll(1L)).thenReturn(approved);
-        ResponseEntity<Payroll> response = payrollController.approvePayroll(1L);
+        approved.setStatus("ACCEPTED");
+        when(payrollService.approvePayroll(1L, "admin-1")).thenReturn(approved);
+        ResponseEntity<?> response = payrollController.approvePayroll(1L, Map.of("adminId", "admin-1"));
         assertEquals(HttpStatus.OK, response.getStatusCode());
     }
 
     @Test
     void approvePayrollReturns404WhenNotFound() {
-        when(payrollService.approvePayroll(99L)).thenThrow(new RuntimeException("not found"));
-        ResponseEntity<Payroll> response = payrollController.approvePayroll(99L);
+        when(payrollService.approvePayroll(99L, null)).thenThrow(new RuntimeException("not found"));
+        ResponseEntity<?> response = payrollController.approvePayroll(99L, null);
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+    }
+
+    @Test
+    void approvePayrollReturns400WhenWalletValidationFails() {
+        when(payrollService.approvePayroll(1L, "admin-1"))
+                .thenThrow(new IllegalStateException("Insufficient admin wallet balance"));
+        ResponseEntity<?> response = payrollController.approvePayroll(1L, Map.of("adminId", "admin-1"));
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
     }
 
     // ── PATCH accept ──────────────────────────────────────────────────────────
