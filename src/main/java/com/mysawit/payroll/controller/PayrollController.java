@@ -1,5 +1,6 @@
 package com.mysawit.payroll.controller;
 
+import com.mysawit.payroll.event.HarvestEvent;
 import com.mysawit.payroll.model.Payroll;
 import com.mysawit.payroll.service.PayrollService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,7 +15,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/payrolls")
-@CrossOrigin(origins = {"${cors.allowed-origins}"})
 public class PayrollController {
 
     @Autowired
@@ -25,8 +25,7 @@ public class PayrollController {
             @RequestParam(required = false) String userId,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to
-    ) {
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
         return ResponseEntity.ok(payrollService.searchPayrolls(userId, status, from, to));
     }
 
@@ -35,11 +34,6 @@ public class PayrollController {
         return payrollService.getPayrollById(id)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
-    }
-
-    @GetMapping("/employee/{employeeId}")
-    public ResponseEntity<List<Payroll>> getPayrollsByEmployee(@PathVariable Long employeeId) {
-        return ResponseEntity.ok(payrollService.getPayrollsByEmployee(employeeId));
     }
 
     @GetMapping("/user/{userId}")
@@ -58,6 +52,19 @@ public class PayrollController {
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
+    @PostMapping("/demo/harvest-event")
+    public ResponseEntity<Map<String, String>> processDemoHarvestEvent(@RequestBody HarvestEvent event) {
+        try {
+            payrollService.processHarvestPayroll(event);
+            return ResponseEntity.ok(Map.of(
+                    "message", "Harvest event processed",
+                    "eventId", event.getEventId()
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+        }
+    }
+
     @PutMapping("/{id}")
     public ResponseEntity<Payroll> updatePayroll(@PathVariable Long id, @RequestBody Payroll payroll) {
         try {
@@ -71,10 +78,9 @@ public class PayrollController {
     @PatchMapping("/{id}/approve")
     public ResponseEntity<?> approvePayroll(
             @PathVariable Long id,
-            @RequestBody(required = false) Map<String, String> request
-    ) {
+            @RequestBody(required = false) Map<String, String> request) {
         try {
-            String adminId = request == null ? null : request.get("adminId");
+            String adminId = request != null ? request.get("adminId") : null;
             Payroll approved = payrollService.approvePayroll(id, adminId);
             return ResponseEntity.ok(approved);
         } catch (IllegalStateException | IllegalArgumentException e) {
@@ -89,7 +95,7 @@ public class PayrollController {
         try {
             Payroll accepted = payrollService.acceptPayroll(id);
             return ResponseEntity.ok(accepted);
-        } catch (IllegalStateException e) {
+        } catch (IllegalStateException | IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -102,7 +108,7 @@ public class PayrollController {
             String reason = request != null ? request.get("reason") : null;
             Payroll rejected = payrollService.rejectPayroll(id, reason);
             return ResponseEntity.ok(rejected);
-        } catch (IllegalStateException | IllegalArgumentException e) {
+        } catch (IllegalStateException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -110,11 +116,13 @@ public class PayrollController {
     }
 
     @PatchMapping("/{id}/pay")
-    public ResponseEntity<Payroll> markAsPaid(@PathVariable Long id, @RequestBody Map<String, String> request) {
+    public ResponseEntity<?> markAsPaid(@PathVariable Long id, @RequestBody(required = false) Map<String, String> request) {
         try {
-            String paymentMethod = request.getOrDefault("paymentMethod", "BANK_TRANSFER");
+            String paymentMethod = request != null ? request.getOrDefault("paymentMethod", "SANDBOX") : "SANDBOX";
             Payroll paid = payrollService.markAsPaid(id, paymentMethod);
             return ResponseEntity.ok(paid);
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }

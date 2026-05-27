@@ -1,23 +1,22 @@
 package com.mysawit.payroll.service;
 
-import com.mysawit.payroll.model.Payroll;
-import com.mysawit.payroll.repository.PayrollRepository;
-import com.mysawit.payroll.repository.WageConfigRepository;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
-import java.util.Locale;
-import java.util.List;
-import java.util.Optional;
-
 import com.mysawit.payroll.event.HarvestEvent;
 import com.mysawit.payroll.event.ShipmentEvent;
-import com.mysawit.payroll.client.IdentityClient;
-import org.springframework.beans.factory.annotation.Value;
+import com.mysawit.payroll.model.Payroll;
+import com.mysawit.payroll.model.PayrollBrokerEvent;
+import com.mysawit.payroll.model.WageConfig;
+import com.mysawit.payroll.repository.PayrollBrokerEventRepository;
+import com.mysawit.payroll.repository.PayrollRepository;
+import com.mysawit.payroll.repository.UserReplicaRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.List;
+import java.util.Optional;
 
 @Service
 public class PayrollService {
@@ -25,35 +24,24 @@ public class PayrollService {
     @Autowired
     private PayrollRepository payrollRepository;
 
-    @Autowired(required = false)
-    private WageConfigRepository wageConfigRepository;
+    @Autowired
+    private PayrollBrokerEventRepository payrollBrokerEventRepository;
 
-    @Autowired(required = false)
+    @Autowired
+    private UserReplicaRepository userReplicaRepository;
+
+    @Autowired
+    private WageConfigService wageConfigService;
+
+    @Autowired
     private WalletService walletService;
-
-    @Autowired(required = false)
-    private IdentityClient identityClient;
-
-    @Value("${identity.service.token:}")
-    private String identityServiceToken;
 
     public List<Payroll> getAllPayrolls() {
         return payrollRepository.findAll();
     }
 
-    public List<Payroll> searchPayrolls(String userId, String status, LocalDateTime from, LocalDateTime to) {
-        if (isBlank(userId) && isBlank(status) && from == null && to == null) {
-            return payrollRepository.findAll();
-        }
-        return payrollRepository.search(blankToNull(userId), normalizeStatusOrNull(status), from, to);
-    }
-
     public Optional<Payroll> getPayrollById(Long id) {
         return payrollRepository.findById(id);
-    }
-
-    public List<Payroll> getPayrollsByEmployee(Long employeeId) {
-        return payrollRepository.findByEmployeeId(String.valueOf(employeeId));
     }
 
     public List<Payroll> getPayrollsByUser(String userId) {
@@ -61,24 +49,45 @@ public class PayrollService {
     }
 
     public List<Payroll> getPayrollsByStatus(String status) {
-        return payrollRepository.findByStatus(status);
+        return payrollRepository.findByStatus(normalizeStatus(status));
     }
 
-    @Transactional
+    public List<Payroll> searchPayrolls(String userId, String status, LocalDateTime start, LocalDateTime end) {
+        String normalizedStatus = status == null || status.isBlank() ? null : normalizeStatus(status);
+        boolean hasUser = userId != null && !userId.isBlank();
+        boolean hasDates = start != null && end != null;
+
+        if (hasUser && normalizedStatus != null && hasDates) {
+            return payrollRepository.findByUserIdAndStatusAndPeriodStartBetween(userId, normalizedStatus, start, end);
+        }
+        if (hasUser && normalizedStatus != null) {
+            return payrollRepository.findByUserIdAndStatus(userId, normalizedStatus);
+        }
+        if (hasUser && hasDates) {
+            return payrollRepository.findByUserIdAndPeriodStartBetween(userId, start, end);
+        }
+        if (normalizedStatus != null) {
+            return payrollRepository.findByStatus(normalizedStatus);
+        }
+        if (hasDates) {
+            return payrollRepository.findByPeriodStartBetween(start, end);
+        }
+        if (hasUser) {
+            return payrollRepository.findByUserId(userId);
+        }
+        return payrollRepository.findAll();
+    }
+
     public Payroll createPayroll(Payroll payroll) {
-        normalizePayroll(payroll);
+        normalizePayrollForSave(payroll);
         return payrollRepository.save(payroll);
     }
 
-    @Transactional
     public Payroll updatePayroll(Long id, Payroll payrollDetails) {
         Payroll payroll = getPayrollOrThrow(id);
-        if (payrollDetails.getUserId() != null) {
-            payroll.setUserId(payrollDetails.getUserId());
-        }
-        if (payrollDetails.getEmployeeId() != null) {
-            payroll.setEmployeeId(payrollDetails.getEmployeeId());
-        }
+        payroll.setBaseAmount(payrollDetails.getBaseAmount());
+        payroll.setBonusAmount(payrollDetails.getBonusAmount());
+        payroll.setDeductionAmount(payrollDetails.getDeductionAmount());
         if (payrollDetails.getRoleType() != null) {
             payroll.setRoleType(normalizeRole(payrollDetails.getRoleType()));
         }
@@ -91,68 +100,48 @@ public class PayrollService {
         if (payrollDetails.getKilograms() != null) {
             payroll.setKilograms(payrollDetails.getKilograms());
         }
-        if (payrollDetails.getPeriodStart() != null) {
-            payroll.setPeriodStart(payrollDetails.getPeriodStart());
-        }
-        if (payrollDetails.getPeriodEnd() != null) {
-            payroll.setPeriodEnd(payrollDetails.getPeriodEnd());
-        }
-        payroll.setBaseAmount(payrollDetails.getBaseAmount());
-        payroll.setBonusAmount(payrollDetails.getBonusAmount());
-        payroll.setDeductionAmount(payrollDetails.getDeductionAmount());
         if (payrollDetails.getStatus() != null) {
-            payroll.setStatus(normalizeStatusOrNull(payrollDetails.getStatus()));
+            payroll.setStatus(normalizeStatus(payrollDetails.getStatus()));
         }
         payroll.setPaymentDate(payrollDetails.getPaymentDate());
         payroll.setPaymentMethod(payrollDetails.getPaymentMethod());
         payroll.setNotes(payrollDetails.getNotes());
-        normalizePayroll(payroll);
-        return payrollRepository.save(payroll);
-    }
-
-    public Payroll approvePayroll(Long id) {
-        Payroll payroll = getPayrollOrThrow(id);
-        payroll.setStatus("APPROVED");
         return payrollRepository.save(payroll);
     }
 
     @Transactional
+    public Payroll approvePayroll(Long id) {
+        return approvePayroll(id, "admin");
+    }
+
+    @Transactional
     public Payroll approvePayroll(Long id, String adminId) {
-        if (isBlank(adminId)) {
-            return approvePayroll(id);
-        }
-
         Payroll payroll = getPayrollOrThrow(id);
-        if (!"PENDING".equals(payroll.getStatus()) && !"ACCEPTED".equals(payroll.getStatus())) {
-            throw new IllegalStateException("Only PENDING payrolls can be approved. Current status: " + payroll.getStatus());
+        String status = normalizeStatus(payroll.getStatus());
+        if ("REJECTED".equals(status) || "PAID".equals(status)) {
+            throw new IllegalStateException("Only PENDING, ACCEPTED, or APPROVED payrolls can be approved. Current status: " + status);
         }
-        if (isBlank(payroll.getUserId())) {
-            throw new IllegalStateException("Payroll userId is required for wallet settlement");
-        }
-        if (walletService == null) {
-            throw new IllegalStateException("Wallet service is not available");
-        }
-
-        normalizePayroll(payroll);
-        double totalAmount = calculateTotal(payroll);
         if (!Boolean.TRUE.equals(payroll.getWalletSettled())) {
-            walletService.transferPayroll(adminId, payroll.getUserId(), totalAmount, "payroll-" + payroll.getId());
+            double transferred = walletService.transfer(
+                    adminId == null || adminId.isBlank() ? "admin" : adminId,
+                    payroll.getUserId(),
+                    payroll.getTotalAmount());
+            payroll.setWalletTransferAmount(transferred);
             payroll.setWalletSettled(true);
-            payroll.setWalletTransferAmount(totalAmount);
         }
-
-        payroll.setStatus("ACCEPTED");
-        payroll.setApprovedBy(adminId);
-        payroll.setApprovedAt(LocalDateTime.now());
-        payroll.setPaymentDate(LocalDateTime.now());
-        payroll.setPaymentMethod("WALLET");
+        payroll.setStatus("APPROVED");
+        if (payroll.getApprovedAt() == null) {
+            payroll.setApprovedAt(LocalDateTime.now());
+        }
+        payroll.setApprovedBy(adminId == null || adminId.isBlank() ? "admin" : adminId);
         return payrollRepository.save(payroll);
     }
 
     public Payroll acceptPayroll(Long id) {
         Payroll payroll = getPayrollOrThrow(id);
-        if (!"PENDING".equals(payroll.getStatus())) {
-            throw new IllegalStateException("Only PENDING payrolls can be accepted. Current status: " + payroll.getStatus());
+        String status = normalizeStatus(payroll.getStatus());
+        if (!"PENDING".equals(status)) {
+            throw new IllegalStateException("Only PENDING payrolls can be accepted. Current status: " + status);
         }
         payroll.setStatus("ACCEPTED");
         return payrollRepository.save(payroll);
@@ -160,25 +149,35 @@ public class PayrollService {
 
     public Payroll rejectPayroll(Long id, String reason) {
         Payroll payroll = getPayrollOrThrow(id);
-        if (!"PENDING".equals(payroll.getStatus())) {
-            throw new IllegalStateException("Only PENDING payrolls can be rejected. Current status: " + payroll.getStatus());
+        String status = normalizeStatus(payroll.getStatus());
+        if ("REJECTED".equals(status)) {
+            return payroll;
         }
-        if (isBlank(reason)) {
+        if (!"PENDING".equals(status) && !"ACCEPTED".equals(status)) {
+            throw new IllegalStateException("Only PENDING or ACCEPTED payrolls can be rejected. Current status: " + status);
+        }
+        if (reason == null || reason.isBlank()) {
             throw new IllegalArgumentException("Rejection reason is required");
         }
         payroll.setStatus("REJECTED");
-        payroll.setNotes(reason.trim());
-        payroll.setRejectionReason(reason.trim());
+        payroll.setRejectionReason(reason);
         payroll.setRejectedAt(LocalDateTime.now());
+        payroll.setNotes(reason);
         return payrollRepository.save(payroll);
     }
 
-    @Transactional
     public Payroll markAsPaid(Long id, String paymentMethod) {
         Payroll payroll = getPayrollOrThrow(id);
+        String status = normalizeStatus(payroll.getStatus());
+        if ("PAID".equals(status)) {
+            return payroll;
+        }
+        if (!"APPROVED".equals(status)) {
+            throw new IllegalStateException("Only APPROVED payrolls can be marked as paid. Current status: " + status);
+        }
         payroll.setStatus("PAID");
         payroll.setPaymentDate(LocalDateTime.now());
-        payroll.setPaymentMethod(paymentMethod);
+        payroll.setPaymentMethod(paymentMethod == null || paymentMethod.isBlank() ? "SANDBOX" : paymentMethod.toUpperCase());
         return payrollRepository.save(payroll);
     }
 
@@ -190,181 +189,151 @@ public class PayrollService {
 
     @Transactional
     public void processHarvestPayroll(HarvestEvent event) {
-        String userId = firstNonBlank(event.getHarvesterId(), event.getEmployeeId());
-        double amount = resolvePayrollAmount("BURUH", event.getWeight(), event.getAmount());
-        LocalDateTime occurredAt = toLocalDateTime(event.getOccurredAt());
+        double kilograms = firstPositive(event.getKilograms(), event.getTotalKg());
+        double amount = amountFromEventOrFormula(event, "BURUH", kilograms);
         processPayrollEvent(
+                eventKey(event.getEventId(), "BURUH", event.getEmployeeId()),
                 event.getEventId(),
-                userId,
+                event.getEmployeeId(),
                 "BURUH",
-                "HARVEST",
-                firstNonBlank(event.getHarvestId(), event.getEventId()),
-                event.getWeight(),
                 amount,
-                occurredAt,
-                "HarvestEvent"
-        );
+                kilograms,
+                "HARVEST",
+                sourceReference(event),
+                "HarvestEvent",
+                eventTimeOrNow(event.getTimestamp()));
     }
 
     @Transactional
     public void processShipmentPayroll(ShipmentEvent event) {
-        String role = normalizeRole(firstNonBlank(event.getEmployeeRole(), "SUPIR"));
-        double amount = resolvePayrollAmount(role, event.getKg(), event.getAmount());
-        LocalDateTime occurredAt = toLocalDateTime(event.getOccurredAt());
-        processPayrollEvent(
-                event.getEventId(),
-                event.getEmployeeId(),
-                role,
-                "SHIPMENT",
-                firstNonBlank(event.getShipmentId(), event.getEventId()),
-                event.getKg(),
-                amount,
-                occurredAt,
-                "ShipmentEvent"
-        );
+        if (hasText(event.getDriverId())) {
+            double driverKg = firstPositive(event.getTotalKg(), event.getKilograms());
+            processPayrollEvent(
+                    eventKey(event.getEventId(), "SUPIR", event.getDriverId()),
+                    event.getEventId(),
+                    event.getDriverId(),
+                    "SUPIR",
+                    amountFromEventOrFormula(event, "SUPIR", driverKg),
+                    driverKg,
+                    "SHIPMENT",
+                    sourceReference(event),
+                    "ShipmentEvent",
+                    eventTimeOrNow(event.getTimestamp()));
+        }
+
+        if (hasText(event.getMandorId())) {
+            double mandorKg = firstPositive(event.getRecognizedKg(), event.getTotalKg(), event.getKilograms());
+            processPayrollEvent(
+                    eventKey(event.getEventId(), "MANDOR", event.getMandorId()),
+                    event.getEventId(),
+                    event.getMandorId(),
+                    "MANDOR",
+                    calculateWage("MANDOR", mandorKg),
+                    mandorKg,
+                    "SHIPMENT",
+                    sourceReference(event),
+                    "ShipmentEvent",
+                    eventTimeOrNow(event.getTimestamp()));
+        }
+
+        if (!hasText(event.getDriverId()) && !hasText(event.getMandorId())) {
+            String role = hasText(event.getRoleType()) ? event.getRoleType() : "SUPIR";
+            double kilograms = firstPositive(event.getKilograms(), event.getTotalKg(), event.getRecognizedKg());
+            double amount = amountFromEventOrFormula(event, role, kilograms);
+            processPayrollEvent(
+                    eventKey(event.getEventId(), role, event.getEmployeeId()),
+                    event.getEventId(),
+                    event.getEmployeeId(),
+                    role,
+                    amount,
+                    kilograms,
+                    "SHIPMENT",
+                    sourceReference(event),
+                    "ShipmentEvent",
+                    eventTimeOrNow(event.getTimestamp()));
+        }
     }
 
-    @Transactional
     private void processPayrollEvent(
+            String eventKey,
             String eventId,
             String userId,
             String roleType,
+            double amount,
+            double kilograms,
             String sourceType,
             String sourceReference,
-            Double kilograms,
-            double amount,
-            LocalDateTime occurredAt,
-            String eventType
-    ) {
-        if (payrollRepository.findByEventId(eventId) != null) {
+            String eventType,
+            LocalDateTime eventTime) {
+        if (!hasText(eventKey)) {
+            throw new IllegalArgumentException("eventKey is required");
+        }
+        if (!hasText(userId)) {
+            throw new IllegalArgumentException("employeeId is required");
+        }
+        if (payrollBrokerEventRepository.existsByEventKey(eventKey)) {
             return;
         }
+        String normalizedRole = normalizeRole(roleType);
         Payroll payroll = new Payroll();
         payroll.setUserId(userId);
-        payroll.setEmployeeId(userId);
-        payroll.setRoleType(roleType);
+        payroll.setRoleType(normalizedRole);
         payroll.setSourceType(sourceType);
         payroll.setSourceReference(sourceReference);
-        payroll.setKilograms(kilograms);
+        payroll.setKilograms(kilograms > 0 ? kilograms : null);
         payroll.setBaseAmount(amount);
         payroll.setBonusAmount(0.0);
         payroll.setDeductionAmount(0.0);
         payroll.setStatus("PENDING");
-        payroll.setPeriodStart(occurredAt == null ? LocalDateTime.now() : occurredAt);
-        payroll.setPeriodEnd(occurredAt == null ? LocalDateTime.now() : occurredAt);
-        payroll.setNotes("Generated from " + eventType + ": " + eventId);
-        payroll.setEventId(eventId);
+        payroll.setPeriodStart(eventTime);
+        payroll.setPeriodEnd(eventTime);
+        payroll.setNotes(buildNotes(eventType, eventKey, userId));
 
-        if (identityClient != null && identityServiceToken != null && !identityServiceToken.isBlank()) {
-            try {
-                Long legacyEmployeeId = parseLong(userId);
-                if (legacyEmployeeId != null) {
-                    var userDetail = identityClient.getUserById(legacyEmployeeId, "Bearer " + identityServiceToken);
-                    if (userDetail != null && userDetail.get("username") != null) {
-                        payroll.setNotes(payroll.getNotes() + ", user: " + userDetail.get("username"));
-                    }
-                }
-            } catch (Exception e) {
-                payroll.setNotes(payroll.getNotes() + ", user fetch failed");
-            }
-        }
-
-        payrollRepository.save(payroll);
+        Payroll savedPayroll = payrollRepository.save(payroll);
+        payrollBrokerEventRepository.save(brokerEvent(
+                eventKey,
+                eventId,
+                eventType,
+                sourceType,
+                sourceReference,
+                userId,
+                normalizedRole,
+                kilograms,
+                amount,
+                savedPayroll.getId()));
     }
 
-    private void normalizePayroll(Payroll payroll) {
-        if (isBlank(payroll.getUserId()) && !isBlank(payroll.getEmployeeId())) {
-            payroll.setUserId(payroll.getEmployeeId());
-        }
-        if (isBlank(payroll.getEmployeeId()) && !isBlank(payroll.getUserId())) {
-            payroll.setEmployeeId(payroll.getUserId());
-        }
-        if (payroll.getRoleType() != null) {
-            payroll.setRoleType(normalizeRole(payroll.getRoleType()));
-        }
-        if (payroll.getStatus() == null || payroll.getStatus().isBlank()) {
-            payroll.setStatus("PENDING");
-        } else {
-            payroll.setStatus(normalizeStatusOrNull(payroll.getStatus()));
-        }
-        if (payroll.getBonusAmount() == null) {
-            payroll.setBonusAmount(0.0);
-        }
-        if (payroll.getDeductionAmount() == null) {
-            payroll.setDeductionAmount(0.0);
-        }
-        if (payroll.getWalletSettled() == null) {
-            payroll.setWalletSettled(false);
-        }
-        if (payroll.getPeriodStart() == null) {
-            payroll.setPeriodStart(LocalDateTime.now());
-        }
-        if (payroll.getPeriodEnd() == null) {
-            payroll.setPeriodEnd(payroll.getPeriodStart());
-        }
+    private PayrollBrokerEvent brokerEvent(
+            String eventKey,
+            String eventId,
+            String eventType,
+            String sourceType,
+            String sourceReference,
+            String userId,
+            String roleType,
+            double kilograms,
+            double amount,
+            Long payrollId) {
+        PayrollBrokerEvent brokerEvent = new PayrollBrokerEvent();
+        brokerEvent.setEventKey(eventKey);
+        brokerEvent.setEventId(eventId);
+        brokerEvent.setEventType(eventType);
+        brokerEvent.setSourceType(sourceType);
+        brokerEvent.setSourceReference(sourceReference);
+        brokerEvent.setUserId(userId);
+        brokerEvent.setRoleType(roleType);
+        brokerEvent.setKilograms(kilograms > 0 ? kilograms : null);
+        brokerEvent.setAmount(amount);
+        brokerEvent.setPayrollId(payrollId);
+        brokerEvent.setProcessedAt(LocalDateTime.now());
+        return brokerEvent;
     }
 
-    private double resolvePayrollAmount(String roleType, Double kilograms, Double fallbackAmount) {
-        if (fallbackAmount != null && fallbackAmount > 0) {
-            return fallbackAmount;
-        }
-        if (kilograms == null || kilograms <= 0) {
-            throw new IllegalArgumentException("Kilograms must be greater than 0 when event amount is missing");
-        }
-        if (wageConfigRepository == null) {
-            throw new IllegalStateException("Wage configuration repository is not available");
-        }
-        return wageConfigRepository
-                .findActiveConfigForRole(normalizeRole(roleType), LocalDate.now())
-                .stream()
-                .findFirst()
-                .or(() -> wageConfigRepository.findFirstByRoleTypeOrderByEffectiveDateDesc(normalizeRole(roleType)))
-                .map(config -> config.getRatePerKg() * kilograms)
-                .orElseThrow(() -> new IllegalStateException("No wage config found for role: " + roleType));
-    }
-
-    private double calculateTotal(Payroll payroll) {
-        double base = payroll.getBaseAmount() == null ? 0.0 : payroll.getBaseAmount();
-        double bonus = payroll.getBonusAmount() == null ? 0.0 : payroll.getBonusAmount();
-        double deduction = payroll.getDeductionAmount() == null ? 0.0 : payroll.getDeductionAmount();
-        double total = base + bonus - deduction;
-        payroll.setTotalAmount(total);
-        return total;
-    }
-
-    private String normalizeRole(String roleType) {
-        return roleType == null ? null : roleType.trim().toUpperCase(Locale.ROOT);
-    }
-
-    private String normalizeStatusOrNull(String status) {
-        return status == null || status.isBlank() ? null : status.trim().toUpperCase(Locale.ROOT);
-    }
-
-    private String blankToNull(String value) {
-        return isBlank(value) ? null : value;
-    }
-
-    private boolean isBlank(String value) {
-        return value == null || value.isBlank();
-    }
-
-    private String firstNonBlank(String first, String second) {
-        return isBlank(first) ? second : first;
-    }
-
-    private LocalDateTime toLocalDateTime(OffsetDateTime value) {
-        return value == null ? null : value.toLocalDateTime();
-    }
-
-    private Long parseLong(String value) {
-        if (isBlank(value)) {
-            return null;
-        }
-        try {
-            return Long.valueOf(value);
-        } catch (NumberFormatException e) {
-            return null;
-        }
+    private String buildNotes(String eventType, String eventId, String userId) {
+        String base = "Generated from " + eventType + ": " + eventId;
+        return userReplicaRepository.findById(userId)
+                .map(user -> base + ", user: " + user.getName())
+                .orElse(base);
     }
 
     private Payroll getPayrollOrThrow(Long id) {
@@ -372,19 +341,97 @@ public class PayrollService {
                 .orElseThrow(() -> new RuntimeException("Payroll not found with id: " + id));
     }
 
-    void setIdentityClient(IdentityClient identityClient) {
-        this.identityClient = identityClient;
+    private void normalizePayrollForSave(Payroll payroll) {
+        if (!hasText(payroll.getUserId())) {
+            throw new IllegalArgumentException("userId is required");
+        }
+        payroll.setStatus(payroll.getStatus() == null ? "PENDING" : normalizeStatus(payroll.getStatus()));
+        if (payroll.getRoleType() != null) {
+            payroll.setRoleType(normalizeRole(payroll.getRoleType()));
+        }
+        if (payroll.getBonusAmount() == null) {
+            payroll.setBonusAmount(0.0);
+        }
+        if (payroll.getDeductionAmount() == null) {
+            payroll.setDeductionAmount(0.0);
+        }
+        if (payroll.getBaseAmount() == null) {
+            payroll.setBaseAmount(0.0);
+        }
+        if (payroll.getWalletSettled() == null) {
+            payroll.setWalletSettled(false);
+        }
     }
 
-    void setIdentityServiceToken(String token) {
-        this.identityServiceToken = token;
+    private double amountFromEventOrFormula(com.mysawit.payroll.event.PayrollEvent event, String roleType, double kilograms) {
+        if (kilograms > 0) {
+            return calculateWage(roleType, kilograms);
+        }
+        if (event.getAmount() > 0) {
+            return event.getAmount();
+        }
+        throw new IllegalArgumentException("Event must include kilograms or positive amount");
     }
 
-    void setWalletService(WalletService walletService) {
-        this.walletService = walletService;
+    private double calculateWage(String roleType, double kilograms) {
+        if (kilograms <= 0) {
+            throw new IllegalArgumentException("kilograms must be greater than zero");
+        }
+        WageConfig config = wageConfigService.getActiveConfigForRole(roleType)
+                .orElseThrow(() -> new IllegalStateException("No active wage config for role: " + roleType));
+        return config.getRatePerKg() * kilograms * 0.9;
     }
 
-    void setWageConfigRepository(WageConfigRepository wageConfigRepository) {
-        this.wageConfigRepository = wageConfigRepository;
+    private String normalizeRole(String roleType) {
+        if (!hasText(roleType)) {
+            throw new IllegalArgumentException("roleType is required");
+        }
+        String upper = roleType.toUpperCase();
+        if (!upper.equals("BURUH") && !upper.equals("SUPIR") && !upper.equals("MANDOR")) {
+            throw new IllegalArgumentException("Invalid roleType: " + roleType);
+        }
+        return upper;
+    }
+
+    private String normalizeStatus(String status) {
+        if (!hasText(status)) {
+            throw new IllegalArgumentException("status is required");
+        }
+        String upper = status.toUpperCase();
+        if (!List.of("PENDING", "ACCEPTED", "APPROVED", "REJECTED", "PAID").contains(upper)) {
+            throw new IllegalArgumentException("Invalid payroll status: " + status);
+        }
+        return upper;
+    }
+
+    private String eventKey(String eventId, String roleType, String userId) {
+        if (!hasText(eventId)) {
+            throw new IllegalArgumentException("eventId is required");
+        }
+        return eventId + ":" + normalizeRole(roleType) + ":" + userId;
+    }
+
+    private String sourceReference(com.mysawit.payroll.event.PayrollEvent event) {
+        return hasText(event.getSourceReference()) ? event.getSourceReference() : event.getEventId();
+    }
+
+    private double firstPositive(Double... values) {
+        for (Double value : values) {
+            if (value != null && value > 0) {
+                return value;
+            }
+        }
+        return 0.0;
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private LocalDateTime eventTimeOrNow(long timestamp) {
+        if (timestamp <= 0) {
+            return LocalDateTime.now();
+        }
+        return LocalDateTime.ofInstant(Instant.ofEpochMilli(timestamp), ZoneId.systemDefault());
     }
 }

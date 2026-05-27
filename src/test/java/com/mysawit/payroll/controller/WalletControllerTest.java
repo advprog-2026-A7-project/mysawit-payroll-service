@@ -6,6 +6,7 @@ import com.mysawit.payroll.service.WalletService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
@@ -14,7 +15,7 @@ import org.springframework.http.ResponseEntity;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -23,75 +24,60 @@ class WalletControllerTest {
     @Mock
     private WalletService walletService;
 
+    @InjectMocks
     private WalletController walletController;
+
+    private Wallet wallet;
 
     @BeforeEach
     void setUp() {
-        walletController = new WalletController(walletService);
+        wallet = new Wallet("admin");
+        wallet.setBalance(100.0);
     }
 
     @Test
     void getWalletReturnsWallet() {
-        Wallet wallet = new Wallet("admin-1");
-        when(walletService.getOrCreateWallet("admin-1")).thenReturn(wallet);
+        when(walletService.getOrCreateWallet("admin")).thenReturn(wallet);
 
-        ResponseEntity<Wallet> response = walletController.getWallet("admin-1");
+        ResponseEntity<Wallet> response = walletController.getWallet("admin");
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals("admin-1", response.getBody().getUserId());
+        assertSame(wallet, response.getBody());
     }
 
     @Test
     void getTransactionsReturnsTransactions() {
-        when(walletService.getTransactions("admin-1")).thenReturn(List.of(new PaymentTransaction()));
+        PaymentTransaction transaction = new PaymentTransaction();
+        transaction.setTransactionId("sandbox-1");
+        when(walletService.getTransactionsForUser("admin")).thenReturn(List.of(transaction));
 
-        ResponseEntity<List<PaymentTransaction>> response = walletController.getTransactions("admin-1");
+        ResponseEntity<List<PaymentTransaction>> response = walletController.getTransactions("admin");
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(1, response.getBody().size());
     }
 
     @Test
-    void createSandboxTopUpReturnsTransaction() {
+    void topUpSandboxReturnsTransaction() {
         PaymentTransaction transaction = new PaymentTransaction();
-        transaction.setTransactionId("tx-1");
-        when(walletService.createSandboxTopUp("admin-1", 10.0, "MIDTRANS_SANDBOX")).thenReturn(transaction);
+        transaction.setTransactionId("sandbox-1");
+        when(walletService.topUpSandbox("admin", 50.0, "XENDIT_SANDBOX")).thenReturn(transaction);
 
-        ResponseEntity<?> response = walletController.createSandboxTopUp(
-                "admin-1",
-                Map.of("amountSawitDollar", 10.0, "gateway", "MIDTRANS_SANDBOX")
-        );
+        ResponseEntity<?> response = walletController.topUpSandbox(
+                "admin",
+                Map.of("amountSawitDollar", "50", "gateway", "XENDIT_SANDBOX"));
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertSame(transaction, response.getBody());
     }
 
     @Test
-    void createSandboxTopUpReturns400OnValidationError() {
-        when(walletService.createSandboxTopUp("admin-1", -1.0, null))
-                .thenThrow(new IllegalArgumentException("Top-up amount must be greater than 0 SawitDollar"));
+    void topUpSandboxUsesDefaultsAndReturnsBadRequestForInvalidInput() {
+        when(walletService.topUpSandbox("admin", 0.0, "SANDBOX"))
+                .thenThrow(new IllegalArgumentException("Top-up amount must be greater than zero"));
 
-        ResponseEntity<?> response = walletController.createSandboxTopUp("admin-1", Map.of("amountSawitDollar", -1.0));
+        ResponseEntity<?> response = walletController.topUpSandbox("admin", null);
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-    }
-
-    @Test
-    void settleSandboxReturnsTransaction() {
-        PaymentTransaction transaction = new PaymentTransaction();
-        transaction.setTransactionId("tx-1");
-        when(walletService.settleSandboxTransaction("tx-1", "PAID")).thenReturn(transaction);
-
-        ResponseEntity<?> response = walletController.settleSandbox("tx-1", Map.of("status", "PAID"));
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-    }
-
-    @Test
-    void settleSandboxReturns404WhenMissing() {
-        when(walletService.settleSandboxTransaction("tx-1", "PAID")).thenThrow(new RuntimeException("missing"));
-
-        ResponseEntity<?> response = walletController.settleSandbox("tx-1", Map.of("status", "PAID"));
-
-        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
     }
 }

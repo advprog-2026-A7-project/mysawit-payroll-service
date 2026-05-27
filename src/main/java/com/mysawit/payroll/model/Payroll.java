@@ -11,13 +11,7 @@ public class Payroll {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "event_id", unique = true)
-    private String eventId; // Untuk idempotency event
-
-    @Column(name = "employee_id")
-    private String employeeId;
-
-    @Column(name = "user_id")
+    @Column(name = "employee_id", nullable = false)
     private String userId;
 
     @Column(name = "role_type")
@@ -51,13 +45,7 @@ public class Payroll {
     private Double totalAmount;
 
     @Column(nullable = false)
-    private String status; // PENDING, APPROVED, PAID, CANCELLED
-
-    @Column(name = "payment_date")
-    private LocalDateTime paymentDate;
-
-    @Column(name = "payment_method")
-    private String paymentMethod; // CASH, BANK_TRANSFER, CHEQUE
+    private String status;
 
     @Column(name = "approved_by")
     private String approvedBy;
@@ -77,6 +65,12 @@ public class Payroll {
     @Column(name = "wallet_transfer_amount")
     private Double walletTransferAmount;
 
+    @Column(name = "payment_date")
+    private LocalDateTime paymentDate;
+
+    @Column(name = "payment_method")
+    private String paymentMethod;
+
     @Column(length = 1000)
     private String notes;
 
@@ -90,44 +84,27 @@ public class Payroll {
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
-        normalizeDefaults();
         calculateTotal();
     }
 
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
-        normalizeDefaults();
         calculateTotal();
     }
 
-    private void normalizeDefaults() {
-        if (status == null || status.isBlank()) {
-            status = "PENDING";
-        }
-        if (bonusAmount == null) {
-            bonusAmount = 0.0;
-        }
-        if (deductionAmount == null) {
-            deductionAmount = 0.0;
-        }
-        if (walletSettled == null) {
-            walletSettled = false;
-        }
-    }
-
     private void calculateTotal() {
-        double base = this.baseAmount == null ? 0.0 : this.baseAmount;
-        double bonus = this.bonusAmount == null ? 0.0 : this.bonusAmount;
-        double deduction = this.deductionAmount == null ? 0.0 : this.deductionAmount;
+        double base = this.baseAmount != null ? this.baseAmount : 0.0;
+        double bonus = this.bonusAmount != null ? this.bonusAmount : 0.0;
+        double deduction = this.deductionAmount != null ? this.deductionAmount : 0.0;
         this.totalAmount = base + bonus - deduction;
     }
 
     // Constructors
     public Payroll() {}
 
-    public Payroll(Long employeeId, LocalDateTime periodStart, LocalDateTime periodEnd, Double baseAmount, String status) {
-        this.employeeId = employeeId == null ? null : String.valueOf(employeeId);
+    public Payroll(String userId, LocalDateTime periodStart, LocalDateTime periodEnd, Double baseAmount, String status) {
+        this.userId = userId;
         this.periodStart = periodStart;
         this.periodEnd = periodEnd;
         this.baseAmount = baseAmount;
@@ -135,25 +112,6 @@ public class Payroll {
         this.bonusAmount = 0.0;
         this.deductionAmount = 0.0;
         calculateTotal();
-    }
-
-    public Payroll(String employeeId, LocalDateTime periodStart, LocalDateTime periodEnd, Double baseAmount, String status) {
-        this.employeeId = employeeId;
-        this.periodStart = periodStart;
-        this.periodEnd = periodEnd;
-        this.baseAmount = baseAmount;
-        this.status = status;
-        this.bonusAmount = 0.0;
-        this.deductionAmount = 0.0;
-        calculateTotal();
-    }
-
-    public String getEventId() {
-        return eventId;
-    }
-
-    public void setEventId(String eventId) {
-        this.eventId = eventId;
     }
 
     // Getters and Setters
@@ -163,18 +121,6 @@ public class Payroll {
 
     public void setId(Long id) {
         this.id = id;
-    }
-
-    public String getEmployeeId() {
-        return employeeId;
-    }
-
-    public void setEmployeeId(String employeeId) {
-        this.employeeId = employeeId;
-    }
-
-    public void setEmployeeId(Long employeeId) {
-        this.employeeId = employeeId == null ? null : String.valueOf(employeeId);
     }
 
     public String getUserId() {
@@ -273,22 +219,6 @@ public class Payroll {
         this.status = status;
     }
 
-    public LocalDateTime getPaymentDate() {
-        return paymentDate;
-    }
-
-    public void setPaymentDate(LocalDateTime paymentDate) {
-        this.paymentDate = paymentDate;
-    }
-
-    public String getPaymentMethod() {
-        return paymentMethod;
-    }
-
-    public void setPaymentMethod(String paymentMethod) {
-        this.paymentMethod = paymentMethod;
-    }
-
     public String getApprovedBy() {
         return approvedBy;
     }
@@ -335,6 +265,22 @@ public class Payroll {
 
     public void setWalletTransferAmount(Double walletTransferAmount) {
         this.walletTransferAmount = walletTransferAmount;
+    }
+
+    public LocalDateTime getPaymentDate() {
+        return paymentDate;
+    }
+
+    public void setPaymentDate(LocalDateTime paymentDate) {
+        this.paymentDate = paymentDate;
+    }
+
+    public String getPaymentMethod() {
+        return paymentMethod;
+    }
+
+    public void setPaymentMethod(String paymentMethod) {
+        this.paymentMethod = paymentMethod;
     }
 
     public String getNotes() {

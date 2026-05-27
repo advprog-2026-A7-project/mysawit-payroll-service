@@ -5,12 +5,13 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "payment_transactions")
-public class PaymentTransaction extends BaseEntity {
+public class PaymentTransaction {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -22,10 +23,10 @@ public class PaymentTransaction extends BaseEntity {
     @Column(name = "user_id", nullable = false)
     private String userId;
 
-    @Column(nullable = false)
+    @Column(name = "gateway", nullable = false)
     private String gateway;
 
-    @Column(nullable = false)
+    @Column(name = "status", nullable = false)
     private String status;
 
     @Column(name = "amount_sawit_dollar", nullable = false)
@@ -37,11 +38,16 @@ public class PaymentTransaction extends BaseEntity {
     @Column(name = "checkout_url")
     private String checkoutUrl;
 
-    @Column(name = "gateway_transaction_id")
-    private String gatewayTransactionId;
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
 
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
+
+    @PrePersist
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+    }
 
     public Long getId() {
         return id;
@@ -107,12 +113,12 @@ public class PaymentTransaction extends BaseEntity {
         this.checkoutUrl = checkoutUrl;
     }
 
-    public String getGatewayTransactionId() {
-        return gatewayTransactionId;
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
     }
 
-    public void setGatewayTransactionId(String gatewayTransactionId) {
-        this.gatewayTransactionId = gatewayTransactionId;
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
     }
 
     public LocalDateTime getPaidAt() {

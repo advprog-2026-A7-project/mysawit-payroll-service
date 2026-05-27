@@ -26,7 +26,6 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/admin/wage-configs")
-@CrossOrigin(origins = "${cors.allowed-origins}")
 public class WageConfigController {
 
     @Autowired
@@ -72,8 +71,7 @@ public class WageConfigController {
 
     // ── Update ────────────────────────────────────────────────────────────────
 
-    @PutMapping("/{id}")
-    @PatchMapping("/{id}")
+    @RequestMapping(value = "/{id}", method = {RequestMethod.PUT, RequestMethod.PATCH})
     public ResponseEntity<?> updateConfig(@PathVariable Long id, @RequestBody WageConfig wageConfig) {
         try {
             WageConfig updated = wageConfigService.updateConfig(id, wageConfig);

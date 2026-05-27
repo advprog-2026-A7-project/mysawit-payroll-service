@@ -1,81 +1,148 @@
 package com.mysawit.payroll.config;
 
-import com.mysawit.payroll.event.HarvestEvent;
-import com.mysawit.payroll.event.ShipmentEvent;
+import org.aopalliance.aop.Advice;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
-import org.springframework.amqp.core.TopicExchange;
+import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.rabbit.annotation.EnableRabbit;
-import org.springframework.amqp.support.converter.DefaultClassMapper;
+import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
+import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
+import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.rabbit.retry.RejectAndDontRequeueRecoverer;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
-import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
-import java.util.HashMap;
-import java.util.Map;
 
 @Configuration
 @EnableRabbit
 public class RabbitMqConfig {
 
-    public static final String HARVEST_PAYROLL_QUEUE = "payroll_queue";
-    public static final String SHIPMENT_EXCHANGE = "shipment.exchange";
-    public static final String SHIPMENT_SUPIR_QUEUE = "payroll.shipment.supir.queue";
-    public static final String SHIPMENT_MANDOR_QUEUE = "payroll.shipment.mandor.queue";
-    public static final String SHIPMENT_APPROVED_BY_MANDOR_KEY = "shipment.approved-by-mandor";
-    public static final String SHIPMENT_APPROVED_BY_ADMIN_KEY = "shipment.approved-by-admin";
-
     @Bean
-    public Queue harvestPayrollQueue() {
-        return new Queue(HARVEST_PAYROLL_QUEUE, true);
+    public DirectExchange payrollDeadLetterExchange(
+            @Value("${payroll.rabbitmq.dead-letter-exchange:payroll.dlx}") String exchangeName) {
+        return new DirectExchange(exchangeName, true, false);
     }
 
     @Bean
-    public TopicExchange shipmentExchange() {
-        return new TopicExchange(SHIPMENT_EXCHANGE, true, false);
+    public Queue harvestPayrollQueue(
+            @Value("${payroll.rabbitmq.queues.harvest:payroll_queue}") String queueName,
+            @Value("${payroll.rabbitmq.dead-letter-exchange:payroll.dlx}") String deadLetterExchange) {
+        return payrollQueue(queueName, deadLetterExchange);
     }
 
     @Bean
-    public Queue shipmentSupirPayrollQueue() {
-        return new Queue(SHIPMENT_SUPIR_QUEUE, true);
+    public Queue harvestPayrollDeadLetterQueue(
+            @Value("${payroll.rabbitmq.queues.harvest:payroll_queue}") String queueName) {
+        return deadLetterQueue(queueName);
     }
 
     @Bean
-    public Queue shipmentMandorPayrollQueue() {
-        return new Queue(SHIPMENT_MANDOR_QUEUE, true);
+    public Binding harvestPayrollDeadLetterBinding(
+            Queue harvestPayrollDeadLetterQueue,
+            DirectExchange payrollDeadLetterExchange,
+            @Value("${payroll.rabbitmq.queues.harvest:payroll_queue}") String queueName) {
+        return BindingBuilder.bind(harvestPayrollDeadLetterQueue)
+                .to(payrollDeadLetterExchange)
+                .with(deadLetterRoutingKey(queueName));
     }
 
     @Bean
-    public Binding shipmentSupirPayrollBinding(
-            @Qualifier("shipmentSupirPayrollQueue") Queue queue,
-            @Qualifier("shipmentExchange") TopicExchange exchange
-    ) {
-        return BindingBuilder.bind(queue).to(exchange).with(SHIPMENT_APPROVED_BY_MANDOR_KEY);
+    public Queue shipmentCompletedQueue(
+            @Value("${payroll.rabbitmq.queues.shipment:shipment.completed}") String queueName,
+            @Value("${payroll.rabbitmq.dead-letter-exchange:payroll.dlx}") String deadLetterExchange) {
+        return payrollQueue(queueName, deadLetterExchange);
     }
 
     @Bean
-    public Binding shipmentMandorPayrollBinding(
-            @Qualifier("shipmentMandorPayrollQueue") Queue queue,
-            @Qualifier("shipmentExchange") TopicExchange exchange
-    ) {
-        return BindingBuilder.bind(queue).to(exchange).with(SHIPMENT_APPROVED_BY_ADMIN_KEY);
+    public Queue shipmentCompletedDeadLetterQueue(
+            @Value("${payroll.rabbitmq.queues.shipment:shipment.completed}") String queueName) {
+        return deadLetterQueue(queueName);
+    }
+
+    @Bean
+    public Binding shipmentCompletedDeadLetterBinding(
+            Queue shipmentCompletedDeadLetterQueue,
+            DirectExchange payrollDeadLetterExchange,
+            @Value("${payroll.rabbitmq.queues.shipment:shipment.completed}") String queueName) {
+        return BindingBuilder.bind(shipmentCompletedDeadLetterQueue)
+                .to(payrollDeadLetterExchange)
+                .with(deadLetterRoutingKey(queueName));
+    }
+
+    @Bean
+    public Queue userRegisteredQueue(
+            @Value("${payroll.rabbitmq.queues.user-registered:user.registered.queue}") String queueName,
+            @Value("${payroll.rabbitmq.dead-letter-exchange:payroll.dlx}") String deadLetterExchange) {
+        return payrollQueue(queueName, deadLetterExchange);
+    }
+
+    @Bean
+    public Queue userRegisteredDeadLetterQueue(
+            @Value("${payroll.rabbitmq.queues.user-registered:user.registered.queue}") String queueName) {
+        return deadLetterQueue(queueName);
+    }
+
+    @Bean
+    public Binding userRegisteredDeadLetterBinding(
+            Queue userRegisteredDeadLetterQueue,
+            DirectExchange payrollDeadLetterExchange,
+            @Value("${payroll.rabbitmq.queues.user-registered:user.registered.queue}") String queueName) {
+        return BindingBuilder.bind(userRegisteredDeadLetterQueue)
+                .to(payrollDeadLetterExchange)
+                .with(deadLetterRoutingKey(queueName));
     }
 
     @Bean
     public MessageConverter jsonMessageConverter() {
-        Jackson2JsonMessageConverter converter = new Jackson2JsonMessageConverter();
-        DefaultClassMapper classMapper = new DefaultClassMapper();
-        classMapper.setTrustedPackages("*");
+        return new Jackson2JsonMessageConverter();
+    }
 
-        Map<String, Class<?>> idClassMapping = new HashMap<>();
-        idClassMapping.put("com.mysawit.harvest.event.HarvestPayrollEvent", HarvestEvent.class);
-        idClassMapping.put("com.mysawit.shipment.event.ShipmentPayrollEvent", ShipmentEvent.class);
-        classMapper.setIdClassMapping(idClassMapping);
+    @Bean
+    public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(
+            ConnectionFactory connectionFactory,
+            MessageConverter jsonMessageConverter,
+            Advice payrollRetryInterceptor) {
+        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+        factory.setConnectionFactory(connectionFactory);
+        factory.setMessageConverter(jsonMessageConverter);
+        factory.setAdviceChain(payrollRetryInterceptor);
+        factory.setDefaultRequeueRejected(false);
+        return factory;
+    }
 
-        converter.setClassMapper(classMapper);
-        return converter;
+    @Bean
+    public Advice payrollRetryInterceptor(
+            @Value("${payroll.rabbitmq.retry.max-attempts:3}") int maxAttempts,
+            @Value("${payroll.rabbitmq.retry.initial-interval-ms:1000}") long initialIntervalMs,
+            @Value("${payroll.rabbitmq.retry.multiplier:2.0}") double multiplier,
+            @Value("${payroll.rabbitmq.retry.max-interval-ms:5000}") long maxIntervalMs) {
+        return RetryInterceptorBuilder.stateless()
+                .maxAttempts(maxAttempts)
+                .backOffOptions(initialIntervalMs, multiplier, maxIntervalMs)
+                .recoverer(new RejectAndDontRequeueRecoverer())
+                .build();
+    }
+
+    private Queue payrollQueue(String queueName, String deadLetterExchange) {
+        return QueueBuilder.durable(queueName)
+                .deadLetterExchange(deadLetterExchange)
+                .deadLetterRoutingKey(deadLetterRoutingKey(queueName))
+                .build();
+    }
+
+    private Queue deadLetterQueue(String queueName) {
+        return QueueBuilder.durable(deadLetterQueueName(queueName)).build();
+    }
+
+    private String deadLetterQueueName(String queueName) {
+        return queueName + ".dlq";
+    }
+
+    private String deadLetterRoutingKey(String queueName) {
+        return queueName + ".dead";
     }
 }
