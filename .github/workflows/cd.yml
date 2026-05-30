@@ -70,6 +70,11 @@ jobs:
       AWS_USER: ${{ secrets.AWS_USER }}
       AWS_SSH_KEY: ${{ secrets.AWS_SSH_KEY }}
       AWS_SSH_PORT: ${{ vars.AWS_SSH_PORT || '22' }}
+      SSH_CONNECT_TIMEOUT: ${{ vars.SSH_CONNECT_TIMEOUT || '60' }}
+      AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'us-east-1' }}
+      AWS_SECURITY_GROUP_ID: ${{ secrets.AWS_SECURITY_GROUP_ID || vars.AWS_SECURITY_GROUP_ID }}
+      HAS_AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY_ID != '' && 'true' || 'false' }}
+      HAS_AWS_SECRET_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY != '' && 'true' || 'false' }}
       PAYROLL_SERVICE_PORT: ${{ vars.PAYROLL_SERVICE_PORT || '8085' }}
       IMAGE_REF: ${{ secrets.DOCKERHUB_USERNAME }}/mysawit-payroll-service:${{ needs.build-push.outputs.image-tag }}
       DEPLOY_DIR: ${{ vars.PAYROLL_DEPLOY_DIR || '/opt/mysawit-payroll-service' }}
@@ -106,13 +111,56 @@ jobs:
           printf '%s' "$AWS_SSH_KEY" | tr -d '\r' > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keygen -y -f ~/.ssh/id_rsa >/dev/null
-          ssh-keyscan -T 30 -p "$AWS_SSH_PORT" -H "$AWS_HOST" >> ~/.ssh/known_hosts || true
+          ssh-keyscan -T "$SSH_CONNECT_TIMEOUT" -p "$AWS_SSH_PORT" -H "$AWS_HOST" >> ~/.ssh/known_hosts || true
+
+      - name: Configure AWS credentials for SSH ingress
+        if: env.HAS_AWS_ACCESS_KEY == 'true' && env.HAS_AWS_SECRET_KEY == 'true' && env.AWS_SECURITY_GROUP_ID != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Allow runner SSH ingress
+        id: ssh_ingress
+        if: env.HAS_AWS_ACCESS_KEY == 'true' && env.HAS_AWS_SECRET_KEY == 'true' && env.AWS_SECURITY_GROUP_ID != ''
+        run: |
+          set -euo pipefail
+          RUNNER_IP="$(curl -fsS https://checkip.amazonaws.com | tr -d '[:space:]')"
+          if [[ ! "$RUNNER_IP" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
+            echo "::error::Could not determine GitHub runner public IPv4 address"
+            exit 1
+          fi
+          RUNNER_CIDR="${RUNNER_IP}/32"
+          echo "runner-cidr=${RUNNER_CIDR}" >> "$GITHUB_OUTPUT"
+          if aws ec2 authorize-security-group-ingress \
+            --group-id "$AWS_SECURITY_GROUP_ID" \
+            --ip-permissions "[{\"IpProtocol\":\"tcp\",\"FromPort\":${AWS_SSH_PORT},\"ToPort\":${AWS_SSH_PORT},\"IpRanges\":[{\"CidrIp\":\"${RUNNER_CIDR}\",\"Description\":\"GitHub Actions payroll deploy ${GITHUB_RUN_ID}\"}]}]"; then
+            echo "opened=true" >> "$GITHUB_OUTPUT"
+            echo "Temporarily allowed SSH from this runner."
+          else
+            echo "Ingress rule may already exist; continuing with SSH attempt."
+            echo "opened=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify SSH reachability
+        run: |
+          set -euo pipefail
+          if timeout "$SSH_CONNECT_TIMEOUT" bash -c "cat < /dev/null > /dev/tcp/${AWS_HOST}/${AWS_SSH_PORT}" 2>/dev/null; then
+            echo "EC2 SSH port is reachable from this runner."
+            exit 0
+          fi
+          echo "::error::GitHub runner cannot reach ${AWS_HOST}:${AWS_SSH_PORT}. Allow this runner IP in the EC2 security group, or configure AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, and AWS_SECURITY_GROUP_ID so this workflow can add a temporary SSH rule."
+          exit 1
 
       - name: Upload deployment env file
         env:
           DB_URL: ${{ secrets.DB_URL }}
           DB_USERNAME: ${{ secrets.DB_USERNAME }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_HEALTH_ENABLED: ${{ vars.DB_HEALTH_ENABLED || 'false' }}
+          DB_CONNECTION_TIMEOUT_MS: ${{ vars.DB_CONNECTION_TIMEOUT_MS || '5000' }}
+          DB_VALIDATION_TIMEOUT_MS: ${{ vars.DB_VALIDATION_TIMEOUT_MS || '3000' }}
           RABBITMQ_HOST: ${{ secrets.RABBITMQ_HOST }}
           RABBITMQ_PORT: ${{ vars.RABBITMQ_PORT || '5672' }}
           RABBITMQ_USERNAME: ${{ secrets.RABBITMQ_USERNAME }}
@@ -129,7 +177,7 @@ jobs:
               exit 1
             fi
           }
-          for key in DB_URL DB_USERNAME DB_PASSWORD RABBITMQ_HOST RABBITMQ_PORT RABBITMQ_USERNAME RABBITMQ_PASSWORD RABBITMQ_HEALTH_ENABLED CORS_ORIGINS; do
+          for key in DB_URL DB_USERNAME DB_PASSWORD DB_HEALTH_ENABLED DB_CONNECTION_TIMEOUT_MS DB_VALIDATION_TIMEOUT_MS RABBITMQ_HOST RABBITMQ_PORT RABBITMQ_USERNAME RABBITMQ_PASSWORD RABBITMQ_HEALTH_ENABLED CORS_ORIGINS; do
             sanitize_single_line "$key" "${!key:-}"
           done
 
@@ -137,6 +185,9 @@ jobs:
             printf 'DB_URL=%s\n' "$DB_URL"
             printf 'DB_USERNAME=%s\n' "$DB_USERNAME"
             printf 'DB_PASSWORD=%s\n' "$DB_PASSWORD"
+            printf 'DB_HEALTH_ENABLED=%s\n' "$DB_HEALTH_ENABLED"
+            printf 'DB_CONNECTION_TIMEOUT_MS=%s\n' "$DB_CONNECTION_TIMEOUT_MS"
+            printf 'DB_VALIDATION_TIMEOUT_MS=%s\n' "$DB_VALIDATION_TIMEOUT_MS"
             printf 'RABBITMQ_HOST=%s\n' "$RABBITMQ_HOST"
             printf 'RABBITMQ_PORT=%s\n' "$RABBITMQ_PORT"
             printf 'RABBITMQ_USERNAME=%s\n' "$RABBITMQ_USERNAME"
@@ -146,14 +197,23 @@ jobs:
           } > payroll.env
           chmod 600 payroll.env
 
-          SSH_OPTS="-i ~/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p $AWS_SSH_PORT"
-          ssh $SSH_OPTS "$AWS_USER@$AWS_HOST" "sudo mkdir -p '$DEPLOY_DIR' && sudo chown '$AWS_USER':'$AWS_USER' '$DEPLOY_DIR'"
-          scp -i ~/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -P "$AWS_SSH_PORT" payroll.env "$AWS_USER@$AWS_HOST:$DEPLOY_DIR/payroll.env"
+          SSH_OPTS="-i ~/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=$SSH_CONNECT_TIMEOUT -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o StrictHostKeyChecking=accept-new -p $AWS_SSH_PORT"
+          SCP_OPTS="-i ~/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=$SSH_CONNECT_TIMEOUT -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o StrictHostKeyChecking=accept-new -P $AWS_SSH_PORT"
+          for attempt in $(seq 1 5); do
+            if ssh $SSH_OPTS "$AWS_USER@$AWS_HOST" "sudo mkdir -p '$DEPLOY_DIR' && sudo chown '$AWS_USER':'$AWS_USER' '$DEPLOY_DIR'" &&
+               scp $SCP_OPTS payroll.env "$AWS_USER@$AWS_HOST:$DEPLOY_DIR/payroll.env"; then
+              exit 0
+            fi
+            echo "SSH upload failed; retrying (${attempt}/5)"
+            sleep 10
+          done
+          echo "::error::Could not upload payroll.env to EC2 over SSH"
+          exit 1
 
       - name: Restart payroll container on EC2
         run: |
           set -euo pipefail
-          SSH_OPTS="-i ~/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p $AWS_SSH_PORT"
+          SSH_OPTS="-i ~/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=$SSH_CONNECT_TIMEOUT -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o StrictHostKeyChecking=accept-new -p $AWS_SSH_PORT"
           ssh $SSH_OPTS "$AWS_USER@$AWS_HOST" "
             set -euo pipefail
             if docker info >/dev/null 2>&1; then DOCKER=docker; else DOCKER='sudo docker'; fi
@@ -172,7 +232,7 @@ jobs:
       - name: Verify public health endpoint
         run: |
           set -euo pipefail
-          HEALTH_URL="http://${AWS_HOST}:${PAYROLL_SERVICE_PORT}/actuator/health"
+          HEALTH_URL="http://${AWS_HOST}:${PAYROLL_SERVICE_PORT}/actuator/health/liveness"
           for attempt in $(seq 1 18); do
             if curl -fsS --connect-timeout 5 --max-time 10 "$HEALTH_URL"; then
               echo "Payroll deployment is healthy at ${HEALTH_URL}"
@@ -188,5 +248,15 @@ jobs:
         if: failure() && env.AWS_HOST != '' && env.AWS_USER != ''
         run: |
           set -euo pipefail
-          SSH_OPTS="-i ~/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p $AWS_SSH_PORT"
+          SSH_OPTS="-i ~/.ssh/id_rsa -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=$SSH_CONNECT_TIMEOUT -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o StrictHostKeyChecking=accept-new -p $AWS_SSH_PORT"
           ssh $SSH_OPTS "$AWS_USER@$AWS_HOST" "(docker ps -a || sudo docker ps -a || true); (docker logs --tail 250 mysawit-payroll-service || sudo docker logs --tail 250 mysawit-payroll-service || true)"
+
+      - name: Revoke runner SSH ingress
+        if: always() && steps.ssh_ingress.outputs.opened == 'true' && steps.ssh_ingress.outputs['runner-cidr'] != '' && env.AWS_SECURITY_GROUP_ID != ''
+        run: |
+          set -euo pipefail
+          aws ec2 revoke-security-group-ingress \
+            --group-id "$AWS_SECURITY_GROUP_ID" \
+            --protocol tcp \
+            --port "$AWS_SSH_PORT" \
+            --cidr "${{ steps.ssh_ingress.outputs['runner-cidr'] }}" || true

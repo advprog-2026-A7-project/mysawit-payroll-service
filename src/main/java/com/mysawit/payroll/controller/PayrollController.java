@@ -15,7 +15,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/payrolls")
-@CrossOrigin(origins = {"${cors.allowed-origins}"})
 public class PayrollController {
 
     @Autowired

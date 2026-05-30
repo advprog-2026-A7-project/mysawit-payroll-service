@@ -4,11 +4,13 @@ import com.mysawit.payroll.model.WageConfig;
 import com.mysawit.payroll.repository.WageConfigRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 
 @Component
+@ConditionalOnProperty(name = "payroll.seed.enabled", havingValue = "true")
 public class DataInitializer implements CommandLineRunner {
 
     @Autowired
